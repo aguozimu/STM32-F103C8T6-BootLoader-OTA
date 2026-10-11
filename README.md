@@ -1,10 +1,11 @@
 # STM32F103C8T6 BootLoader + OTA
 
-基于 **STM32F103C8T6** 的 BootLoader + APP 双工程方案（Keil MDK-ARM + STM32CubeMX）。
+基于 **STM32F103C8T6** 的 BootLoader + APP 双工程方案，支持 **Keil MDK-ARM** 与 **CMake + arm-none-eabi-gcc** 两套构建方式。
 
-BootLoader 位于 Flash 起始地址，复位后完成最小时钟/外设初始化并跳转到 APP；
+BootLoader 位于 Flash 起始地址，复位后完成最小时钟 / 外设初始化并跳转到 APP；
 APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据，并把结果经由 **USART1** 转发出去。
-本仓库同时归档两个工程的 Keil 编译产物（`.hex` / `.axf` / `.map`），便于随时取用固件。
+
+仓库只提交源码、CubeMX / Keil 工程配置与最终固件 `.hex`；编译中间产物（`.o` / `.crf` / `.d` / `.axf` / `.map` / `build/` 等）由 `.gitignore` 过滤，不入库。
 
 ---
 
@@ -34,10 +35,10 @@ APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据，并把结
 
 ## 2. Flash 分区
 
-| 区域 | 起始地址 | 大小（Keil IROM1） |
+| 区域 | 起始地址 | 大小 |
 | --- | --- | --- |
 | BootLoader | `0x08000000` | `0x00002500`（9.25 KB） |
-| APP | `0x08002500` | `0x00002500` |
+| APP | `0x08002500` | `0x00002500`（Keil IROM1） |
 
 BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/main.c`）：
 
@@ -47,7 +48,11 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 4. `SCB->VTOR = 0x08002500` 重定向中断向量表；
 5. 以函数指针方式跳转到 APP 运行。
 
-> 当前 BootLoader 只承担跳转职责，OTA 搬运/校验逻辑尚未实现，可作为后续扩展点。
+> 当前 BootLoader 只承担跳转职责，OTA 搬运 / 校验逻辑尚未实现，可作为后续扩展点。
+>
+> ⚠️ 注意：CubeMX 生成的 GCC 链接脚本 `STM32F103xx_FLASH.ld` 中 APP 的 `FLASH` 起始地址仍为 `0x8000000`，
+> 与 Keil 工程的 `0x8002500` 不一致。若用 CMake 构建 APP，需先把该链接脚本的 FLASH ORIGIN 改为 `0x8002500`
+> 并相应缩短 LENGTH，否则会覆盖 BootLoader。
 
 ---
 
@@ -57,37 +62,76 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 .
 |-- README.md
 |-- .gitignore
+|-- ref/                                    # 参考资料（SI24R1 数据手册）
 |-- APP/
-|   `-- APP/                        # 应用程序工程
-|       |-- APP.ioc                 # STM32CubeMX 工程文件
-|       |-- Core/                   # main.c / usart.c / spi.c / gpio.c / iwdg.c / 中断
-|       |-- Drivers/                # CMSIS + STM32F1xx HAL 驱动
-|       |-- hardware/               # 用户驱动：Delay、FREQ2_4G(SI24R1)、Mydef
-|       |-- MDK-ARM/                # Keil 工程与编译产物（APP.hex / APP.axf / APP.map）
-|       `-- tmp_manuals/            # 芯片资料（SI24R1、G01S 手册）
+|   `-- APP/                                # 应用程序工程
+|       |-- APP.ioc                         # STM32CubeMX 工程文件
+|       |-- Core/                           # main.c / usart.c / spi.c / gpio.c / iwdg.c / 中断
+|       |-- Drivers/                        # CMSIS + STM32F1xx HAL 驱动（仅保留用到的文件）
+|       |-- hardware/                       # 用户驱动：Delay、FREQ2_4G(SI24R1)、Mydef
+|       |-- MDK-ARM/                        # Keil 工程文件与固件 APP.hex（中间产物不入库）
+|       |-- CMakeLists.txt / CMakePresets.json / cmake/   # CMake（arm-none-eabi-gcc）构建
+|       |-- STM32F103xx_FLASH.ld            # GCC 链接脚本
+|       |-- startup_stm32f103xb.s           # GCC 启动文件
+|       `-- tmp_manuals/                    # 芯片资料（SI24R1、G01S 手册）
 `-- bootloader/
-    `-- bootloader/                 # BootLoader 工程（结构与 APP 相同）
-        |-- bootloader.ioc
-        |-- Core/
-        `-- MDK-ARM/                # bootloader.hex / bootloader.axf / bootloader.map
+    `-- bootloader/                         # BootLoader 工程（结构与 APP 相同）
+        |-- CMakeLists.txt / CMakePresets.json / cmake/
+        |-- STM32F103xx_FLASH.ld
+        |-- MDK-ARM/                        # Keil 工程文件与固件 bootloader.hex
+        `-- ...
 ```
 
 ---
 
 ## 4. 编译与烧录
 
-1. 用 **Keil uVision5（MDK-ARM）** 打开 `bootloader/bootloader/MDK-ARM/bootloader.uvprojx`，编译得到 `bootloader.hex`；
+### 方式一：Keil MDK-ARM
+
+1. 打开 `bootloader/bootloader/MDK-ARM/bootloader.uvprojx`，编译得到 `bootloader.hex`；
 2. 打开 `APP/APP/MDK-ARM/APP.uvprojx`，编译得到 `APP.hex`；
 3. 先烧录 BootLoader（`0x08000000`），再烧录 APP（`0x08002500`）；
-4. 也可以直接使用仓库中已归档的 `.hex` 文件，无需重新编译。
+4. 也可以直接使用仓库中已提交的 `.hex` 固件，无需重新编译。
+
+### 方式二：CMake + arm-none-eabi-gcc
+
+需要 CMake 3.22+、Ninja 与 arm-none-eabi-gcc 工具链：
+
+```bash
+cmake --preset Debug        # 或 Release
+cmake --build --preset Debug
+```
+
+生成物位于 `build/Debug/`（该目录已由 `.gitignore` 排除）。
 
 > `*.ioc` 为 CubeMX 工程文件，修改外设配置后可重新生成 `Core/` 代码。
 
 ---
 
-## 5. 版本记录
+## 5. 版本管理约定
+
+**纳入版本管理**
+
+- 源码：`Core/`、`hardware/`、`Drivers/`；
+- 工程配置：`*.ioc`、`.mxproject`、`*.uvprojx`、`*.uvoptx`、`CMakeLists.txt`、`CMakePresets.json`、`cmake/`、`*.ld`、启动文件；
+- 最终固件：`APP.hex`、`bootloader.hex`；
+- 资料文档：`ref/`、`tmp_manuals/`。
+
+**由 `.gitignore` 过滤**
+
+- Keil 编译中间产物：`*.o`、`*.crf`、`*.d`、`*.lst`、`*.lnp`、`*.dep`、`*.sct`、`*.map`、`*.axf`、`*.htm`（构建日志）等；
+- CMake 构建目录：`build/`、`cmake-build-*/`；
+- Keil 运行时目录：`MDK-ARM/RTE/`、`MDK-ARM/DebugConfig/`（重新编译时自动重建）；
+- 用户 / 调试相关：`*.uvguix.*`、`JLinkLog.txt`、`JLinkSettings.ini`；
+- 编辑器与操作系统临时文件：`.vscode/`、`.idea/`、`*.tmp`、`*.bak`、`Thumbs.db` 等。
+
+---
+
+## 6. 版本记录
 
 | 日期 | 说明 |
 | --- | --- |
 | 2026-10-11 | 初始提交：BootLoader + APP 工程 |
 | 2026-10-11 | 新增 IWDG 独立看门狗：使能 LSI 时钟，BootLoader / APP 均初始化，APP 主循环定期喂狗 |
+| 2026-10-11 | 新增 `README.md` 与 `.gitignore`；将 Keil 编译中间产物等临时文件移出版本控制 |
+| 2026-10-11 | CubeMX 改用 CMake 工具链重新生成两个工程，并裁剪未使用的 HAL / CMSIS 库文件 |

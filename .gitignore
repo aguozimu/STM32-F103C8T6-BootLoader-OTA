@@ -1,9 +1,8 @@
 # ===========================================================================
 # STM32F103C8T6 BootLoader + OTA —— Git 忽略规则
 #
-# 本仓库按“归档”方式使用：两个 Keil 工程的编译产物（.hex / .axf / .map 等）
-# 跟随源码一起提交，便于直接取用固件，因此这里【不】忽略 MDK-ARM 下的输出。
-# 此处只忽略编辑器 / 操作系统产生的临时文件，以及 Keil 运行时残留的锁文件、日志。
+# 原则：只提交源码、工程配置与最终固件（*.hex）；
+#       编译中间产物、调试残留、编辑器与操作系统的临时文件一律忽略。
 # ===========================================================================
 
 # --- 编辑器 / IDE ---
@@ -20,9 +19,35 @@ Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
 
-# --- Keil / 调试器运行时残留 ---
-*.lock
-*.lck
+# --- Keil MDK-ARM 编译中间产物 ---
+*.o
+*.crf
+*.d
+*.lst
+*.lnp
+*.dep
+*.iex
+*.sct
+*.map
+*.axf
+*.htm
+*.__i
+
+# --- CMake / GCC 编译输出目录 ---
+build/
+cmake-build-*/
+
+# --- 两个工程的 Keil 运行时目录（锚定到 MDK-ARM，避免误伤
+#     Drivers/CMSIS 第三方库中自带的 RTE 目录）---
+/APP/APP/MDK-ARM/RTE/
+/APP/APP/MDK-ARM/DebugConfig/
+/bootloader/bootloader/MDK-ARM/RTE/
+/bootloader/bootloader/MDK-ARM/DebugConfig/
+
+# --- Keil 用户相关文件 ---
+*.uvguix.*
+
+# --- 调试器日志 ---
 JLinkLog.txt
 JLinkSettings.ini
 
@@ -32,23 +57,8 @@ JLinkSettings.ini
 *.orig
 *.rej
 
-# ---------------------------------------------------------------------------
-# 备选方案（默认关闭）：若只想提交源码、不提交编译中间产物，
-# 取消下面注释，然后执行：
-#   git rm -r --cached APP/APP/MDK-ARM bootloader/bootloader/MDK-ARM
-# 文件仍保留在本地磁盘，只是不再被 Git 跟踪。（若想保留 .hex / .axf / .map，
-# 可在取消注释后补上：!*.hex、!*.axf、!*.map）
-# ---------------------------------------------------------------------------
-# *.o
-# *.crf
-# *.d
-# *.lst
-# *.lnp
-# *.dep
-# *.htm
-# *.iex
-# *.sct
-# *.build_log.htm
-# *.uvguix.*
-# DebugConfig/
-# RTE/
+# --- 说明 ---
+# 最终固件（APP.hex / bootloader.hex）仍纳入版本管理，方便直接取用。
+# 如希望连固件一起忽略，取消下面注释并执行：
+#   git rm --cached APP/APP/MDK-ARM/APP/APP.hex bootloader/bootloader/MDK-ARM/bootloader/bootloader.hex
+# *.hex

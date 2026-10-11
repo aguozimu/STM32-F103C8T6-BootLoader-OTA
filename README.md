@@ -104,6 +104,8 @@ cmake --build --preset Debug
 
 生成物位于 `build/Debug/`（该目录已由 `.gitignore` 排除）。
 
+> 注：当前 CubeMX 工程的工具链设置为 **MDK-ARM V5.32**，仓库中的 CMake 构建文件保留可继续使用。
+
 > `*.ioc` 为 CubeMX 工程文件，修改外设配置后可重新生成 `Core/` 代码。
 
 ---
@@ -135,3 +137,4 @@ cmake --build --preset Debug
 | 2026-10-11 | 新增 IWDG 独立看门狗：使能 LSI 时钟，BootLoader / APP 均初始化，APP 主循环定期喂狗 |
 | 2026-10-11 | 新增 `README.md` 与 `.gitignore`；将 Keil 编译中间产物等临时文件移出版本控制 |
 | 2026-10-11 | CubeMX 改用 CMake 工具链重新生成两个工程，并裁剪未使用的 HAL / CMSIS 库文件 |
+| 2026-10-11 | CubeMX 工具链由 CMake 切回 MDK-ARM V5.32，重新生成两个工程的 Keil 工程文件（仅 XML 格式规范化，无实质配置变化） |

@@ -1,21 +1,30 @@
-bootloader/main.o: ..\Core\Src\main.c ..\Core\Inc\main.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal.h \
-  ..\Core\Inc\stm32f1xx_hal_conf.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_rcc.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_def.h \
-  ..\Drivers\CMSIS\Device\ST\STM32F1xx\Include\stm32f1xx.h \
-  ..\Drivers\CMSIS\Device\ST\STM32F1xx\Include\stm32f103xb.h \
-  ..\Drivers\CMSIS\Include\core_cm3.h \
-  ..\Drivers\CMSIS\Device\ST\STM32F1xx\Include\system_stm32f1xx.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\Legacy\stm32_hal_legacy.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_rcc_ex.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_gpio.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_gpio_ex.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_exti.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_dma.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_dma_ex.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_cortex.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_flash.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_flash_ex.h \
-  ..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_pwr.h \
-  ..\Core\Inc\gpio.h
+bootloader\main.o: ../Core/Src/main.c
+bootloader\main.o: ../Core/Inc/main.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal.h
+bootloader\main.o: ../Core/Inc/stm32f1xx_hal_conf.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_rcc.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_def.h
+bootloader\main.o: ../Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f1xx.h
+bootloader\main.o: ../Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xb.h
+bootloader\main.o: ../Drivers/CMSIS/Include/core_cm3.h
+bootloader\main.o: E:\kile 5\ARM\ARMCC\Bin\..\include\stdint.h
+bootloader\main.o: ../Drivers/CMSIS/Include/cmsis_version.h
+bootloader\main.o: ../Drivers/CMSIS/Include/cmsis_compiler.h
+bootloader\main.o: ../Drivers/CMSIS/Include/cmsis_armcc.h
+bootloader\main.o: ../Drivers/CMSIS/Device/ST/STM32F1xx/Include/system_stm32f1xx.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy/stm32_hal_legacy.h
+bootloader\main.o: E:\kile 5\ARM\ARMCC\Bin\..\include\stddef.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_rcc_ex.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_gpio.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_gpio_ex.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_exti.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_dma.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_dma_ex.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_cortex.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash_ex.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_iwdg.h
+bootloader\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pwr.h
+bootloader\main.o: ../Core/Inc/iwdg.h
+bootloader\main.o: ../Core/Inc/gpio.h

@@ -26,6 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "Mydef.h"
+#include "TIM.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,6 +36,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define RF_DATA_LEN 16U
 
 /* USER CODE END PD */
 
@@ -68,7 +70,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  __enable_irq(); /* BootLoader jumps to APP with interrupts masked. */
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -94,9 +96,9 @@ int main(void)
   MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
 
+	TIM_LED_Init();
 	FREQ2_4G_ReadInit();
-uint8_t RXData[12]={0};
-uint8_t RXData_BUFF[12]={0};
+uint8_t RXData[RF_DATA_LEN]={0};
 uint8_t TXData[1]={0xF5};
 
 ReadClc_Data Data={0};
@@ -117,68 +119,8 @@ Data.TXLen=1;
     /* USER CODE BEGIN 3 */
 //	  Delay_ms(50);
 	HAL_IWDG_Refresh(&hiwdg);
-	if(FREQ2_4G_ReadClc(&Data)==HAL_OK){
-		/*查看同步位*/
-		if(RXData[3]==1){
-		
-
-		
-			/*拷贝一份*/
-			for(int i=0;i<12;i++){
-			RXData_BUFF[i]=RXData[i];
-			}
-			
-			
-		if(Data.RX_PIN==0){//通道0发起同步
-
-		
-		/*一直等待1通道发来消息*/
-		while(Data.RX_PIN==1){FREQ2_4G_ReadClc(&Data);};
-		/*看模式位*/	
-		if(RXData[7]==0){//转移1~2bit位
-		RXData_BUFF[1]=RXData[1];
-		RXData_BUFF[2]=	RXData[2];
-		
-		
-		}else if(RXData[7]==2){//转移4~6bit，8~10bit
-		RXData_BUFF[4]=RXData[4];
-		RXData_BUFF[5]=RXData[5];
-		RXData_BUFF[6]=RXData[6];
-			
-		RXData_BUFF[8]=RXData[8];			
-		RXData_BUFF[9]=RXData[9];
-		RXData_BUFF[10]=RXData[10];		
-		};
-		}else if(Data.RX_PIN==1){//通道1发起同步
-			
-		/*一直等待0通道发来消息*/
-		while(Data.RX_PIN==0){FREQ2_4G_ReadClc(&Data);};
-		/*看模式位*/	
-		if(RXData[7]==0){//转移1~2bit位
-		RXData_BUFF[1]=RXData[1];
-		RXData_BUFF[2]=	RXData[2];
-		
-		
-		}else if(RXData[7]==2){//转移4~6bit，8~10bit
-		RXData_BUFF[4]=RXData[4];
-		RXData_BUFF[5]=RXData[5];
-		RXData_BUFF[6]=RXData[6];
-			
-		RXData_BUFF[8]=RXData[8];			
-		RXData_BUFF[9]=RXData[9];
-		RXData_BUFF[10]=RXData[10];		
-		};		
-		
-		};
-			
-
-		
-		};
-	
-		/*处理完发送*/
-	  HAL_UART_Transmit(&huart1,RXData,Data.RXLen,HAL_MAX_DELAY); 
-
-	};
+	FREQ2_4G_ReadClc(&Data);
+	HAL_UART_Transmit(&huart1,RXData,RF_DATA_LEN,HAL_MAX_DELAY);
 
 	
 //	uint8_t TX;

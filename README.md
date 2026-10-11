@@ -126,6 +126,7 @@ cmake --build --preset Debug
 - Keil 运行时目录：`MDK-ARM/RTE/`、`MDK-ARM/DebugConfig/`（重新编译时自动重建）；
 - 用户 / 调试相关：`*.uvguix.*`、`JLinkLog.txt`、`JLinkSettings.ini`；
 - 编辑器与操作系统临时文件：`.vscode/`、`.idea/`、`*.tmp`、`*.bak`、`Thumbs.db` 等。
+- 对话日志与过程性临时文件：/tmp/（存放每次对话日志 `tmp/logs/*.md` 与全部临时产物，详见 AGENTS.md）。
 
 ---
 

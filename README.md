@@ -26,10 +26,11 @@ APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据，并把结
 | 2.4G 片选 CSN | GPIO 输出 | PA4 |
 | 2.4G 使能 CE | GPIO 输出 | PB0 |
 | 2.4G 中断 IRQ | GPIO 输入（上拉） | PB1 |
-| LED 指示灯 | GPIO 输出（预留） | PB12 |
+| LED 指示灯 | GPIO 输出，低电平点亮；由 TIM2 中断驱动闪烁 | PB12 |
 | 2.4G SPI | SPI1 主机，8 bit，CPOL=0 / CPHA=0，分频 8（约 9 Mbit/s） | PA5=SCK，PA6=MISO，PA7=MOSI |
 | 串口 | USART1 异步 | PA9=TX，PA10=RX |
 | 看门狗 | IWDG（LSI），4 分频，重装载 4095，超时约 410 ms | — |
+| LED 闪烁定时器 | TIM2 内部时钟，Prescaler 7200-1 / Period 1000-1 → 100 ms 中断，每 5 次翻转一次（约 1 Hz） | — |
 
 ---
 
@@ -66,9 +67,9 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 |-- APP/
 |   `-- APP/                                # 应用程序工程
 |       |-- APP.ioc                         # STM32CubeMX 工程文件
-|       |-- Core/                           # main.c / usart.c / spi.c / gpio.c / iwdg.c / 中断
+|       |-- Core/                           # main.c / usart.c / spi.c / gpio.c / iwdg.c / tim.c / 中断
 |       |-- Drivers/                        # CMSIS + STM32F1xx HAL 驱动（仅保留用到的文件）
-|       |-- hardware/                       # 用户驱动：Delay、FREQ2_4G(SI24R1)、Mydef
+|       |-- hardware/                       # 用户驱动：Delay、FREQ2_4G(SI24R1)、TIM_LED、Mydef
 |       |-- MDK-ARM/                        # Keil 工程文件与固件 APP.hex（中间产物不入库）
 |       |-- CMakeLists.txt / CMakePresets.json / cmake/   # CMake（arm-none-eabi-gcc）构建
 |       |-- STM32F103xx_FLASH.ld            # GCC 链接脚本
@@ -139,3 +140,4 @@ cmake --build --preset Debug
 | 2026-10-11 | 新增 `README.md` 与 `.gitignore`；将 Keil 编译中间产物等临时文件移出版本控制 |
 | 2026-10-11 | CubeMX 改用 CMake 工具链重新生成两个工程，并裁剪未使用的 HAL / CMSIS 库文件 |
 | 2026-10-11 | CubeMX 工具链由 CMake 切回 MDK-ARM V5.32，重新生成两个工程的 Keil 工程文件（仅 XML 格式规范化，无实质配置变化） |
+| 2026-10-12 | TIM2 改由 CubeMX / HAL 管理（Core/Src/tim.c，100 ms 周期），LED 闪烁回调拆分到 hardware/TIM_LED.c |

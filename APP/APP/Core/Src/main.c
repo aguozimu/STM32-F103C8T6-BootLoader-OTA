@@ -108,7 +108,7 @@ ReadClc_Data Data={0};
 Data.RXData_P0=RXData;
 Data.TXData=TXData;
 Data.TXLen=1;
-
+//BKP->DR2 = 0;
 
   /* USER CODE END 2 */
 

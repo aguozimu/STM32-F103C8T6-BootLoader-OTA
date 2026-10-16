@@ -19,11 +19,12 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "iwdg.h"
+#include "tim.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "Mydef.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -123,8 +124,38 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_IWDG_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-	Goto_APP();
+
+  /*查看是否为看门狗复位*/
+uint32_t is_iwdg = (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST) != 0U);
+
+__HAL_RCC_CLEAR_RESET_FLAGS(); /*清除复位标志位*/
+
+
+/*初始化/读取 BKP 计数 */
+//HAL_PWR_EnableBkUpAccess();
+//__HAL_RCC_BKP_CLK_ENABLE();
+
+
+//	if (BKP->DR1 != 0x5A5A) { BKP->DR1 = 0x5A5A; BKP->DR2 = 0; }  /* 首次/备份域被清 *//*DR2用来计算出错次数*/
+
+//      
+//	if (is_iwdg) BKP->DR2++;else BKP->DR2 = 0;       /* 看门狗复位 → 累加 */  /* 上电/按键复位 → 清零 */
+
+
+
+if (is_iwdg) {
+/*进入安全模式*/
+TIM_LED_Start();
+  __enable_irq();
+} else {
+
+    Goto_APP();
+}
+
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -134,6 +165,14 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+      /*安全模式*/
+    HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);  /* 亮 20 ms */
+    Delay_ms(20);
+    HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);    /* 灭 */
+    Delay_ms(2000);  
+	HAL_IWDG_Refresh(&hiwdg);
+
+
   }
   /* USER CODE END 3 */
 }

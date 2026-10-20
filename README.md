@@ -29,7 +29,7 @@ APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据，并把结
 | LED 指示灯 | GPIO 输出，低电平点亮；APP 由 TIM2、BootLoader 由 TIM1 中断驱动闪烁 | PB12 |
 | 2.4G SPI | SPI1 主机，8 bit，CPOL=0 / CPHA=0，分频 8（约 9 Mbit/s） | PA5=SCK，PA6=MISO，PA7=MOSI |
 | 串口 | USART1 异步 | PA9=TX，PA10=RX |
-| 看门狗 | IWDG（LSI），4 分频，重装载 4095，超时约 410 ms | — |
+| 看门狗 | IWDG（LSI），16 分频，重装载 2499，超时约 1.0 s | — |
 | LED 闪烁定时器 | TIM2 内部时钟，Prescaler 7200-1 / Period 1000-1 → 100 ms 中断，每 5 次翻转一次（约 1 Hz） | — |
 
 ---
@@ -38,24 +38,26 @@ APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据，并把结
 
 | 区域 | 起始地址 | 大小 |
 | --- | --- | --- |
-| BootLoader | `0x08000000` | `0x00002500`（9.25 KB） |
-| APP | `0x08002500` | `0x00002500`（Keil IROM1） |
+| BootLoader | `0x08000000` | `0x00004000`（16 KB） |
+| APP（一号程序区） | `0x08004000` | `0x00004000`（16 KB，Keil IROM1） |
+| 二号程序区（升级缓存） | `0x08008000` | `0x00004000`（16 KB） |
+| 数据备份区 | `0x0800C000` | `0x00004000`（16 KB，1 KB/页） |
 
 BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/main.c`）：
 
 1. 关中断 `__disable_irq()`；
-2. 取 APP 向量表第二个字作为复位入口 `*(uint32_t *)(0x08002500 + 4)`；
-3. `__set_MSP(*(uint32_t *)0x08002500)` 设置 APP 栈顶；
-4. `SCB->VTOR = 0x08002500` 重定向中断向量表；
+2. 取 APP 向量表第二个字作为复位入口 `*(uint32_t *)(0x08004000 + 4)`；
+3. `__set_MSP(*(uint32_t *)0x08004000)` 设置 APP 栈顶；
+4. `SCB->VTOR = 0x08004000` 重定向中断向量表；
 5. 以函数指针方式跳转到 APP 运行。
 
 > BootLoader 在跳转前还会判断复位源并清除复位标志：`RCC_FLAG_IWDGRST`（看门狗复位）成立时不跳转 APP，而是进入安全模式——由 TIM1（100 ms）驱动 PB12 LED 闪烁并在主循环中喂狗；其他复位（上电 / 按键 / 软件）才跳转 APP。
 >
-> OTA 固件搬运 / 校验逻辑尚未实现，可作为后续扩展点。
+> OTA 基础组件已落地：CRC（CRC 外设 + HAL 驱动）、Flash 读写/擦除（`hardware/MyFLASH.c`）与备份元数据（`hardware/FlashManage.c`，记录版本号、运行状态、代码区域及 16 页地址/CRC）；固件搬运与校验主流程仍在开发中。
 >
 > ⚠️ 注意：CubeMX 生成的 GCC 链接脚本 `STM32F103xx_FLASH.ld` 中 APP 的 `FLASH` 起始地址仍为 `0x8000000`，
-> 与 Keil 工程的 `0x8002500` 不一致。若用 CMake 构建 APP，需先把该链接脚本的 FLASH ORIGIN 改为 `0x8002500`
-> 并相应缩短 LENGTH，否则会覆盖 BootLoader。
+> 与 Keil 工程的 `0x8004000` 不一致。若用 CMake 构建 APP，需先把该链接脚本的 FLASH ORIGIN 改为 `0x8004000`、
+> LENGTH 改为 `16K`，否则会覆盖 BootLoader。
 
 ---
 
@@ -69,9 +71,9 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 |-- APP/
 |   `-- APP/                                # 应用程序工程
 |       |-- APP.ioc                         # STM32CubeMX 工程文件
-|       |-- Core/                           # main.c / usart.c / spi.c / gpio.c / iwdg.c / tim.c / 中断
+|       |-- Core/                           # main.c / usart.c / spi.c / gpio.c / iwdg.c / tim.c / crc.c / 中断
 |       |-- Drivers/                        # CMSIS + STM32F1xx HAL 驱动（仅保留用到的文件）
-|       |-- hardware/                       # 用户驱动：Delay、FREQ2_4G(SI24R1)、TIM_LED、Mydef
+|       |-- hardware/                       # 用户驱动：Delay、FREQ2_4G(SI24R1)、TIM_LED、MyFLASH、FlashManage、Mydef
 |       |-- MDK-ARM/                        # Keil 工程文件与固件 APP.hex（中间产物不入库）
 |       |-- CMakeLists.txt / CMakePresets.json / cmake/   # CMake（arm-none-eabi-gcc）构建
 |       |-- STM32F103xx_FLASH.ld            # GCC 链接脚本
@@ -79,8 +81,8 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 |       `-- tmp_manuals/                    # 芯片资料（SI24R1、G01S 手册）
 `-- bootloader/
     `-- bootloader/                         # BootLoader 工程（结构与 APP 相同）
-        |-- Core/                           # main.c / gpio.c / iwdg.c / tim.c(TIM1) / 中断
-        |-- hardware/                       # 用户驱动：Delay、TIM_LED、Mydef
+        |-- Core/                           # main.c / gpio.c / iwdg.c / tim.c(TIM1) / crc.c / 中断
+        |-- hardware/                       # 用户驱动：Delay、TIM_LED、MyFLASH、Mydef
         |-- CMakeLists.txt / CMakePresets.json / cmake/
         |-- STM32F103xx_FLASH.ld
         |-- MDK-ARM/                        # Keil 工程文件与固件 bootloader.hex
@@ -95,7 +97,7 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 
 1. 打开 `bootloader/bootloader/MDK-ARM/bootloader.uvprojx`，编译得到 `bootloader.hex`；
 2. 打开 `APP/APP/MDK-ARM/APP.uvprojx`，编译得到 `APP.hex`；
-3. 先烧录 BootLoader（`0x08000000`），再烧录 APP（`0x08002500`）；
+3. 先烧录 BootLoader（`0x08000000`），再烧录 APP（`0x08004000`）；
 4. 也可以直接使用仓库中已提交的 `.hex` 固件，无需重新编译。
 
 ### 方式二：CMake + arm-none-eabi-gcc
@@ -146,3 +148,4 @@ cmake --build --preset Debug
 | 2026-10-11 | CubeMX 工具链由 CMake 切回 MDK-ARM V5.32，重新生成两个工程的 Keil 工程文件（仅 XML 格式规范化，无实质配置变化） |
 | 2026-10-12 | TIM2 改由 CubeMX / HAL 管理（`Core/Src/tim.c`，100 ms 周期），LED 闪烁回调拆分到 `hardware/TIM_LED.c` |
 | 2026-10-16 | BootLoader 增加看门狗复位检测与安全模式（TIM1 驱动 LED 闪烁 + 喂狗），非看门狗复位才跳转 APP；新增 `bootloader/hardware` 驱动目录与原理图 `ref/SCH_Schematic1_2026-10-16.pdf` |
+| 2026-10-20 | Flash 分区调整为 BootLoader / APP / 二号程序区 / 数据备份区各 16 KB（APP 起始改为 `0x08004000`）；启用 CRC 外设，新增 `MyFLASH`、`FlashManage` 驱动与备份数据结构；IWDG 超时改为约 1.0 s |

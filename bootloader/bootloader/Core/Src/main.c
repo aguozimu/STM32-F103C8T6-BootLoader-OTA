@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "crc.h"
 #include "iwdg.h"
 #include "tim.h"
 #include "gpio.h"
@@ -59,7 +60,7 @@ void SystemClock_Config(void);
 
 
 
-#define APP_add 0x8002500  			//APP地址
+#define APP_add 0x8004000  			//APP地址
 void Goto_APP (void){
 	//创建函数指针
 	typedef void(* Start_Goto)  (void);
@@ -125,6 +126,7 @@ int main(void)
   MX_GPIO_Init();
   MX_IWDG_Init();
   MX_TIM1_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
 
   /*查看是否为看门狗复位*/
@@ -169,7 +171,7 @@ TIM_LED_Start();
     HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);  /* 亮 20 ms */
     Delay_ms(20);
     HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);    /* 灭 */
-    Delay_ms(2000);  
+    Delay_ms(200);  
 	HAL_IWDG_Refresh(&hiwdg);
 
 

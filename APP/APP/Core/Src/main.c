@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "crc.h"
 #include "iwdg.h"
 #include "spi.h"
 #include "tim.h"
@@ -96,6 +97,7 @@ int main(void)
   MX_SPI1_Init();
   MX_IWDG_Init();
   MX_TIM2_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
 
 	TIM_LED_Start();
@@ -121,6 +123,10 @@ Data.TXLen=1;
     /* USER CODE BEGIN 3 */
 //	  Delay_ms(50);
 	HAL_IWDG_Refresh(&hiwdg);
+	  
+	  //Delay_ms(500);
+	  
+	  
 	FREQ2_4G_ReadClc(&Data);
 	HAL_UART_Transmit(&huart1,RXData,RF_DATA_LEN,HAL_MAX_DELAY);
 

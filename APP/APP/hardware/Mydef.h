@@ -15,7 +15,8 @@
 #include "FREQ2_4G.h"
 #include "Mydef.h"
 #include "TIM_LED.h"
-
+#include "MyFLASH.h"
+#include "FlashManage.h"
 
 #define SPI_CSN(x)		HAL_GPIO_WritePin(SPI_CSN_GPIO_Port,SPI_CSN_Pin,x)
 

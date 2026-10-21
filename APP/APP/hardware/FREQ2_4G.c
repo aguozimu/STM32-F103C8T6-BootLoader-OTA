@@ -4,9 +4,9 @@ uint16_t FREQ2_4G_SendFREQ=2400;
 uint16_t FREQ2_4G_ReadFREQ=2400;
 
 
-uint64_t FREQ2_4G_SendARR=0xA5A5A5A5A5;
+uint64_t FREQ2_4G_SendARR=0xC2C2C2C2C2;
 uint64_t FREQ2_4G_ReadARR=0xA5A5A5A5A5;
-uint64_t FREQ2_4G_ReadARR_1=0xA5FFA5FFA5;
+uint64_t FREQ2_4G_ReadARR_1=0xC2C2C2C2C2;
 
 void FREQ2_4G_SendInit (void){
 ////////ACK+ACK包回应模式
@@ -76,7 +76,7 @@ uint8_t RX;
 	SPI_CSN(0);
 	TX=SI24R1_WriteRegister(SI24R1_RF_SETUP);
 	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
-	TX=0x27; 					
+	TX=0x0F; 					//2Mbps，7dBm
 	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
 	SPI_CSN(1);
 	
@@ -114,11 +114,11 @@ uint8_t RX;
 
 	Delay_ms(100);
 
-	//使能接收通道1,通道2
+	//使能接收通道0、通道1
 	SPI_CSN(0);
 	TX=SI24R1_WriteRegister(SI24R1_EN_RXADDR);
 	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
-	TX=0x01;
+	TX=0x03;
 	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
 	SPI_CSN(1);
 	
@@ -151,24 +151,24 @@ uint8_t RX;
 	
 		//设置通道1接收地址	
 	
-//	SPI_CSN(0);
-//	TX=SI24R1_WriteRegister(SI24R1_RX_ADDR_P1);
-//	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
-//	for (int i = 0; i < 5; i++)
-//	{
-//    TX = (uint8_t)((FREQ2_4G_ReadARR_1 >> (8 * i)) & 0xFF);
-//	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
-//	}
-//	SPI_CSN(1);	
+	SPI_CSN(0);
+	TX=SI24R1_WriteRegister(SI24R1_RX_ADDR_P1);
+	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
+	for (int i = 0; i < 5; i++)
+	{
+    TX = (uint8_t)((FREQ2_4G_ReadARR_1 >> (8 * i)) & 0xFF);
+	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
+	}
+	SPI_CSN(1);
 
 	
 	
 	
-	//通道0，1动态负载使能
+	//开启通道0、1动态负载
 	SPI_CSN(0);
 	TX=SI24R1_WriteRegister(SI24R1_DYNPD);
 	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
-	TX=0x01;
+	TX=0x03;
 	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX,1,HAL_MAX_DELAY);
 	SPI_CSN(1);	
 

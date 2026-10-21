@@ -16,7 +16,7 @@ APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据，并把结
 | MCU | STM32F103C8T6，LQFP48，64 KB Flash / 20 KB SRAM |
 | 时钟 | 外部 8 MHz 晶振（HSE）+ PLL x9，系统主频 **72 MHz** |
 | 低速时钟 | LSI 打开，供 IWDG 独立看门狗使用 |
-| 无线模块 | SI24R1（nRF24L01 兼容），走 SPI1 |
+| 无线模块 | SI24R1（nRF24L01 兼容），SPI1；2400 MHz、2 Mbps、7 dBm、5 字节地址、动态负载（单包 1~32 字节）；P0=`A5A5A5A5A5`、P1=`C2C2C2C2C2` |
 | 调试串口 | USART1，115200 8-N-1 |
 
 ### 外设与引脚
@@ -150,3 +150,4 @@ cmake --build --preset Debug
 | 2026-10-16 | BootLoader 增加看门狗复位检测与安全模式（TIM1 驱动 LED 闪烁 + 喂狗），非看门狗复位才跳转 APP；新增 `bootloader/hardware` 驱动目录与原理图 `ref/SCH_Schematic1_2026-10-16.pdf` |
 | 2026-10-20 | Flash 分区调整为 BootLoader / APP / 二号程序区 / 数据备份区各 16 KB（APP 起始改为 `0x08004000`）；启用 CRC 外设，新增 `MyFLASH`、`FlashManage` 驱动与备份数据结构；IWDG 超时改为约 1.0 s |
 | 2026-10-21 | FlashManage 备份写函数重命名为 `FlashManage_BackupWritePage`；新增 0xA5 帧协议处理骨架 `FlashManage_HCC`；`Mydef.h` 补充 `string.h`、`crc.h` 引用 |
+| 2026-10-21 | 2.4G 启用 P0/P1 双通道接收（`EN_RXADDR`、`DYNPD` 均为 `0x03`），P1 地址改为 `C2C2C2C2C2`；发送端地址与速率对齐为 2 Mbps / 7 dBm；`RXData_P1` 复用接收缓冲 |

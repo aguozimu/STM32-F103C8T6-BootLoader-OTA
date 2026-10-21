@@ -102,12 +102,14 @@ int main(void)
 
 	TIM_LED_Start();
 	FREQ2_4G_ReadInit();
+
 uint8_t RXData[RF_DATA_LEN]={0};
 uint8_t TXData[1]={0xF5};
 
 ReadClc_Data Data={0};
 
 Data.RXData_P0=RXData;
+Data.RXData_P1=RXData;
 Data.TXData=TXData;
 Data.TXLen=1;
 //BKP->DR2 = 0;
@@ -121,12 +123,8 @@ Data.TXLen=1;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-//	  Delay_ms(50);
 	HAL_IWDG_Refresh(&hiwdg);
-	  
-	  //Delay_ms(500);
-	  
-	  
+
 	FREQ2_4G_ReadClc(&Data);
 	HAL_UART_Transmit(&huart1,RXData,RF_DATA_LEN,HAL_MAX_DELAY);
 

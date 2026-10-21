@@ -34,7 +34,7 @@
 
 
 
-void Backup_WritePage(Data_Backup Data){
+void FlashManage_BackupWritePage(Data_Backup Data){
 	
 	uint32_t BackupPageADD;
 	
@@ -101,7 +101,141 @@ void Backup_WritePage(Data_Backup Data){
 
 
 
+void FlashManage_HCC  (uint8_t* Data){
+while(1){
+	uint8_t Data_Head[1];/*帧头*/
+	uint8_t Data_type[6];/*帧类型*/
+	uint8_t Data_num[1];/*帧编号*/
+	uint8_t Data_Dat[4];/*帧数据*/
+	uint8_t Data_CRC[4];/*帧CRC(数据段)* /
 
+/*			1bit/6bit/1bit/4bit/4bit 				 */
+/*Data为	帧头/类型/编号/数据段/CRC(数据段)			*/
+
+
+/*数据处理*/
+Data_Head[0]=Data[0];
+Data_num[0]=Data[7];
+
+for (int i = 0; i < 6; i++)
+{
+	Data_type[i]=Data[i+1];
+}
+for (int i = 0; i < 4; i++)
+{
+	Data_Dat[i]=Data[i+8];
+}
+for (int i = 0; i < 4; i++)
+{
+	Data_CRC[i]=Data[i+12];
+}
+
+
+
+
+/*状态机*/
+if(Data_Head[0]==0xA5){
+/*开始通讯*/
+	if(strcmp("SetDat",(const char*)Data_type)==0){
+		/*上位机数据传输*/
+		/*每页编号0~255*/	
+/*		0xA5/SetDat/当前编号/DATA/CRC(数据段)    				*/
+		
+
+		/*CRC校验*/
+
+		/*存入缓存数组*/
+
+		/*回发CRC校验值*/
+
+/*		帧头/类型/编号/数据段/CRC校验值/CRC(数据段)					*/		
+/*		0xA5/ARKCRC/当前编号/CRC校验值/CRC(数据段)    				*/
+
+		/*发送结束帧(最后单独发送一次)*/
+/*		0xA5/SetEnd/0x00/当前状态/CRC(数据段)    		*/
+
+	
+	}else if (strcmp("GetCRC",(const char*)Data_type)==0)
+	{
+		/*上位机获取每页CRC校验*/
+		/*每页编号0~255*/
+		/*0xA5/GetCRC/当前编号/(uint32)0x00/CRC(数据段)*/
+
+		/*发送每页CRC*/
+/*		0xA5/SetCRC/当前编号/CRC校验值/CRC(数据段)    		*/
+
+
+
+		/*发送结束帧(最后单独发送一次)*/
+/*		0xA5/SetEnd/0x00/当前状态/CRC(数据段)    		*/
+
+	}else if (strcmp("GetMID",(const char*)Data_type)==0)
+	{
+		/*上位机获取当前运行固件ID*/
+		/*0xA5/GetMID/0x00/(uint32)0x00/CRC(数据段)*/
+		
+		/*发送当前状态*/
+		/*0xA5/GetMID/0x00/(uint32)ID/CRC(数据段)*/
+
+		/*发送结束帧(最后单独发送一次)*/
+		/*0xA5/SetEnd/0x00/当前状态/CRC(数据段)*/
+
+	}else if (strcmp("GetSta",(const char*)Data_type)==0){
+		/*上位机获取当前烧录状态*/
+		/*0xA5/GetSta/0x00/(uint32)0x00/CRC(数据段)*/
+
+
+
+		/*发送当前状态*/
+		/*0xA5/SetSta/0x00/(uint32)Start/CRC(数据段)*/	
+
+
+		/*发送结束帧(最后单独发送一次)*/
+		/*0xA5/SetEnd/0x00/当前状态/CRC(数据段)*/
+
+
+
+
+	}else if (strcmp("SetEro",(const char*)Data_type)==0){
+		/*上位机发送错误指令*/
+		/*0xA5/SetEro/0x00/(uint32)0x00/CRC(数据段)*/
+
+		/*错误处理(先不写)*/
+
+		/*发送结束帧(最后单独发送一次)*/
+		/*0xA5/SetEnd/0x00/当前状态/CRC(数据段)*/
+
+	}else if (strcmp("SetEnd",(const char*)Data_type)==0){
+		/*上位机发送结束指令*/
+		/*0xA5/SetEnd/0x00/(uint32)0x00/CRC(数据段)*/
+
+		/*发送结束帧(最后单独发送一次)*/
+		/*0xA5/SetEnd/0x00/当前状态/CRC(数据段)*/
+
+	}
+	
+	
+	
+	
+
+
+
+
+
+	
+	
+
+	
+}	
+	
+
+
+};
+
+
+
+
+}
 
 
 

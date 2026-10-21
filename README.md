@@ -149,3 +149,4 @@ cmake --build --preset Debug
 | 2026-10-12 | TIM2 改由 CubeMX / HAL 管理（`Core/Src/tim.c`，100 ms 周期），LED 闪烁回调拆分到 `hardware/TIM_LED.c` |
 | 2026-10-16 | BootLoader 增加看门狗复位检测与安全模式（TIM1 驱动 LED 闪烁 + 喂狗），非看门狗复位才跳转 APP；新增 `bootloader/hardware` 驱动目录与原理图 `ref/SCH_Schematic1_2026-10-16.pdf` |
 | 2026-10-20 | Flash 分区调整为 BootLoader / APP / 二号程序区 / 数据备份区各 16 KB（APP 起始改为 `0x08004000`）；启用 CRC 外设，新增 `MyFLASH`、`FlashManage` 驱动与备份数据结构；IWDG 超时改为约 1.0 s |
+| 2026-10-21 | FlashManage 备份写函数重命名为 `FlashManage_BackupWritePage`；新增 0xA5 帧协议处理骨架 `FlashManage_HCC`；`Mydef.h` 补充 `string.h`、`crc.h` 引用 |

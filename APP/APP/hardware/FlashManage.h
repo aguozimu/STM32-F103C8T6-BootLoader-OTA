@@ -33,7 +33,7 @@ typedef struct {
 	
 }Data_Backup;
 
-void Backup_WritePage(Data_Backup Data);
+void FlashManage_BackupWritePage(Data_Backup Data);
 
 
 

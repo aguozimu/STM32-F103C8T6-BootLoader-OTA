@@ -1,5 +1,7 @@
 #ifndef __FLASHMANAGE_H
 #define __FLASHMANAGE_H
+
+
 #include "stm32f1xx_hal.h" 
 #define BackupPageADD1 0x800C000 
 #define BackupPageADD2 0x800C400 

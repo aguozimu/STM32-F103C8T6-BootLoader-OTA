@@ -39,8 +39,6 @@
 #define SI24R1_WriteRegister(X)			0x20u|X		//写X寄存器
 #define SI24R1_ReadRegister(X)			0x00u|X		//读X寄存器
 
-
-
 typedef struct {
 
 	uint8_t *TXData;	//填想要发送数据地址

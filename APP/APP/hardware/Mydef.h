@@ -13,11 +13,13 @@
 #include "usart.h"
 #include "gpio.h"
 #include "crc.h"
+#include "tim.h"
 
 #include "Delay.h"
 #include "FREQ2_4G.h"
 #include "Mydef.h"
 #include "TIM_LED.h"
+#include "Uart.h"
 #include "MyFLASH.h"
 #include "FlashManage.h"
 

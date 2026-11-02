@@ -3,17 +3,23 @@
 /*flash内存管理*/
 
 
-
+/*运行时进行程序刷写，并且双备份*/
 /*0x8000000~0x8003FFF*//*bootloader区域*/
-/*0x8004000~0x8007FFF*//*一号程序区域*/
-/*0x8008000~0x800BFFF*//*二号程序区域*/
-/*0x800C000~0x800FFFF*//*数据备份区域*/
+/*0x8004000~0x8007BFF*//*一号程序区域*/
+/*0x8007C00~0x8007FFF*//*一号程序数据备份区域*/
+/*0x8008000–0x800BBFF*//*二号程序区域*/
+/*0x800BC00–0x800BFFF*//*二号程序数据备份区域*/
+/*0x800C000–0x800FBFF*//*三号程序区域*/
+/*0x800FC00–x0800FFFF*//*三号程序数据备份区域*/
 /*每个区域宽度0x4000==16KB*/
+
+
 /*1KB一页*/
 
 /*数据备份区域*/
-/*0x800C000~0x800C3FF*//*一号程序数据备份*//*size=1024，一页*/
-/*0x800C400~0x800C7FF*//*二号程序数据备份*//*size=1024，一页*/
+/*0x8007C00~0x8007FFF*//*一号程序数据备份*//*size=1024，一页*/
+/*0x800BC00–0x800BFFF*//*二号程序数据备份*//*size=1024，一页*/
+/*0x800FC00–x0800FFFF*//*三号程序数据备份*//*size=1024，一页*/
 /*.....*/
 
 /*单个数据备份区*/
@@ -90,18 +96,20 @@ void FlashManage_BackupWritePage(Data_Backup Data){
 	MyFLASH_ProgramWord(BackupPageADD+0x70U,Data.Page14.Page_CRC);
 	/*第十五页CRC*/
 	MyFLASH_ProgramWord(BackupPageADD+0x74U,Data.Page15.Page_ADD);
-	MyFLASH_ProgramWord(BackupPageADD+0x78U,Data.Page15.Page_CRC);		
-	/*第十六页CRC*/
-	MyFLASH_ProgramWord(BackupPageADD+0x7CU,Data.Page16.Page_ADD);
-	MyFLASH_ProgramWord(BackupPageADD+0x80U,Data.Page16.Page_CRC);
-		
+	MyFLASH_ProgramWord(BackupPageADD+0x78U,Data.Page15.Page_CRC);
 	
-
+	//	/*第十六页CRC*//*数据备份区域*/
+//	MyFLASH_ProgramWord(BackupPageADD+0x7CU,Data.Page16.Page_ADD);
+//	MyFLASH_ProgramWord(BackupPageADD+0x80U,Data.Page16.Page_CRC);
+		
 }
 
 
 
-void FlashManage_HCC  (uint8_t* Data){
+void FlashManage_HCC  (uint8_t* RXData,uint8_t* TXData){
+	
+	/*RX为接收到的数据，TX为发送出去的数据（不用考虑数据缓存区大小）*/
+	
 while(1){
 	uint8_t Data_Head[1];/*帧头*/
 	uint8_t Data_type[6];/*帧类型*/
@@ -114,20 +122,20 @@ while(1){
 
 
 /*数据处理*/
-Data_Head[0]=Data[0];
-Data_num[0]=Data[7];
+Data_Head[0]=RXData[0];
+Data_num[0]=RXData[7];
 
 for (int i = 0; i < 6; i++)
 {
-	Data_type[i]=Data[i+1];
+	Data_type[i]=RXData[i+1];
 }
 for (int i = 0; i < 4; i++)
 {
-	Data_Dat[i]=Data[i+8];
+	Data_Dat[i]=RXData[i+8];
 }
 for (int i = 0; i < 4; i++)
 {
-	Data_CRC[i]=Data[i+12];
+	Data_CRC[i]=RXData[i+12];
 }
 
 
@@ -138,6 +146,7 @@ if(Data_Head[0]==0xA5){
 /*开始通讯*/
 	if(strcmp("SetDat",(const char*)Data_type)==0){
 		/*上位机数据传输*/
+		/*地址偏移（查看空闲区域）*/
 		/*每页编号0~255*/	
 /*		0xA5/SetDat/当前编号/DATA/CRC(数据段)    				*/
 		

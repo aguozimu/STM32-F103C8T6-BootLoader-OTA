@@ -1,16 +1,13 @@
 #ifndef __TIM_LED_H
 #define __TIM_LED_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include "main.h"
+#include "stm32f1xx_hal.h"
 
 void TIM_LED_Start(void);
+uint32_t TIM_LED_GetTimeMs(void);
+void TIM_LED_SetSolidOn(uint8_t solid_on);
 
-#ifdef __cplusplus
-}
-#endif
+
+
 
 #endif /* __TIM_LED_H */

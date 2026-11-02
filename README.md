@@ -3,7 +3,7 @@
 基于 **STM32F103C8T6** 的 BootLoader + APP 双工程方案，支持 **Keil MDK-ARM** 与 **CMake + arm-none-eabi-gcc** 两套构建方式。
 
 BootLoader 位于 Flash 起始地址，复位后完成最小时钟 / 外设初始化并跳转到 APP；
-APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据，并把结果经由 **USART1** 转发出去。
+APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据；UART2 数据可经 2.4G 发出；2.4G 接收完一帧后，通道 0 数据从 **USART1 TX** 输出，通道 1 数据从 **USART2 TX** 输出。
 
 仓库只提交源码、CubeMX / Keil 工程配置与最终固件 `.hex`；编译中间产物（`.o` / `.crf` / `.d` / `.axf` / `.map` / `build/` 等）由 `.gitignore` 过滤，不入库。
 
@@ -18,6 +18,7 @@ APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据，并把结
 | 低速时钟 | LSI 打开，供 IWDG 独立看门狗使用 |
 | 无线模块 | SI24R1（nRF24L01 兼容），SPI1；2400 MHz、2 Mbps、7 dBm、5 字节地址、动态负载（单包 1~32 字节）；P0=`A5A5A5A5A5`、P1=`C2C2C2C2C2` |
 | 调试串口 | USART1，115200 8-N-1 |
+| 2.4G 数据串口 | USART2，115200 8-N-1，空闲中断接收，1024 字节环形缓冲 | PA2=TX，PA3=RX |
 
 ### 外设与引脚
 
@@ -28,7 +29,7 @@ APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据，并把结
 | 2.4G 中断 IRQ | GPIO 输入（上拉） | PB1 |
 | LED 指示灯 | GPIO 输出，低电平点亮；APP 由 TIM2、BootLoader 由 TIM1 中断驱动闪烁 | PB12 |
 | 2.4G SPI | SPI1 主机，8 bit，CPOL=0 / CPHA=0，分频 8（约 9 Mbit/s） | PA5=SCK，PA6=MISO，PA7=MOSI |
-| 串口 | USART1 异步 | PA9=TX，PA10=RX |
+| 调试串口 | USART1 异步 | PA9=TX，PA10=RX |
 | 看门狗 | IWDG（LSI），16 分频，重装载 2499，超时约 1.0 s | — |
 | LED 闪烁定时器 | TIM2 内部时钟，Prescaler 7200-1 / Period 1000-1 → 100 ms 中断，每 5 次翻转一次（约 1 Hz） | — |
 
@@ -73,7 +74,7 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 |       |-- APP.ioc                         # STM32CubeMX 工程文件
 |       |-- Core/                           # main.c / usart.c / spi.c / gpio.c / iwdg.c / tim.c / crc.c / 中断
 |       |-- Drivers/                        # CMSIS + STM32F1xx HAL 驱动（仅保留用到的文件）
-|       |-- hardware/                       # 用户驱动：Delay、FREQ2_4G(SI24R1)、TIM_LED、MyFLASH、FlashManage、Mydef
+|       |-- hardware/                       # 用户驱动：Delay、FREQ2_4G(SI24R1)、TIM_LED、Uart、MyFLASH、FlashManage、Mydef
 |       |-- MDK-ARM/                        # Keil 工程文件与固件 APP.hex（中间产物不入库）
 |       |-- CMakeLists.txt / CMakePresets.json / cmake/   # CMake（arm-none-eabi-gcc）构建
 |       |-- STM32F103xx_FLASH.ld            # GCC 链接脚本
@@ -151,3 +152,6 @@ cmake --build --preset Debug
 | 2026-10-20 | Flash 分区调整为 BootLoader / APP / 二号程序区 / 数据备份区各 16 KB（APP 起始改为 `0x08004000`）；启用 CRC 外设，新增 `MyFLASH`、`FlashManage` 驱动与备份数据结构；IWDG 超时改为约 1.0 s |
 | 2026-10-21 | FlashManage 备份写函数重命名为 `FlashManage_BackupWritePage`；新增 0xA5 帧协议处理骨架 `FlashManage_HCC`；`Mydef.h` 补充 `string.h`、`crc.h` 引用 |
 | 2026-10-21 | 2.4G 启用 P0/P1 双通道接收（`EN_RXADDR`、`DYNPD` 均为 `0x03`），P1 地址改为 `C2C2C2C2C2`；发送端地址与速率对齐为 2 Mbps / 7 dBm；`RXData_P1` 复用接收缓冲 |
+| 2026-10-26 | 2.4G 接收完一帧后按通道选择串口：通道 0 从 USART1 TX 输出，通道 1 从 USART2 TX 输出；接收缓冲扩至 32 字节，支持最大动态负载 |
+| 2026-10-26 | UART2 接收缓冲、环形队列、空闲/错误回调与发送封装迁移至 `hardware/Uart.c/.h`；取消 2.4G 上电稳定等待，初始化后直接进入接收模式 |
+| 2026-10-26 | UART2 环形缓冲扩至 1024 字节；收到 UART2 数据后只发送一次，随后立即恢复接收模式，发送失败不重试 |

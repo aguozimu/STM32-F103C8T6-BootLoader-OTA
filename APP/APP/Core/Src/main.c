@@ -28,7 +28,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "Mydef.h"
-#include "TIM_LED.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,7 +37,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define RF_DATA_LEN 16U
+#define RF_DATA_LEN 32U                 /* 2.4G 动态负载最大长度 */
 
 /* USER CODE END PD */
 
@@ -98,21 +97,25 @@ int main(void)
   MX_IWDG_Init();
   MX_TIM2_Init();
   MX_CRC_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-	TIM_LED_Start();
-	FREQ2_4G_ReadInit();
-
-uint8_t RXData[RF_DATA_LEN]={0};
-uint8_t TXData[1]={0xF5};
-
+uint8_t RXData[RF_DATA_LEN]={0};                    /* 2.4G 接收数据 */
+uint8_t TXData[1]={0xF5};                           /* 2.4G 接收模式的 ACK 数据 */
+uint8_t UART2_TXData[UART2_RF_PAYLOAD_MAX]={0};     /* 从环形缓冲区取出的一包数据 */
+uint8_t uart2_tx_len=0;                             /* 本次从环形缓冲区取出的长度 */
 ReadClc_Data Data={0};
+SendClc_Data SendData={0};
+
+/* 启动 TIM2 时基，初始化 UART2 接收，并直接进入 2.4G 接收模式 */
+TIM_LED_Start();
+Uart2_Init();
+FREQ2_4G_ReadInit();
 
 Data.RXData_P0=RXData;
 Data.RXData_P1=RXData;
 Data.TXData=TXData;
 Data.TXLen=1;
-//BKP->DR2 = 0;
 
   /* USER CODE END 2 */
 
@@ -123,38 +126,42 @@ Data.TXLen=1;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	HAL_IWDG_Refresh(&hiwdg);
+  /* 主循环每轮刷新看门狗 */
+  HAL_IWDG_Refresh(&hiwdg);
+	  /*开接收*/
+  Uart2_Poll();
 
-	FREQ2_4G_ReadClc(&Data);
-	HAL_UART_Transmit(&huart1,RXData,RF_DATA_LEN,HAL_MAX_DELAY);
-
-	
-//	uint8_t TX;
-//	uint8_t RX[6];
-//	
-//	SPI_CSN(0);
-//	TX=SI24R1_ReadRegister(SI24R1_SETUP_RETR);
-//	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX[0],1,HAL_MAX_DELAY);
-//	HAL_SPI_TransmitReceive(&hspi1,&TX,&RX[1],1,HAL_MAX_DELAY);
-//	SPI_CSN(1);
-//	
-//	 HAL_UART_Transmit(&huart1,RX,6,HAL_MAX_DELAY); 
-//	
-//	
-//	
-
-
+  /* 收到一帧 UART2 数据后只发送一次，随后立即恢复接收模式 */
+  if (Uart2_HasData())
+  {
+    uart2_tx_len = Uart2_Read(UART2_TXData, UART2_RF_PAYLOAD_MAX);
+    if (uart2_tx_len > 0U)
+    {
+      FREQ2_4G_SendInit();
+      SendData.TXData = UART2_TXData;
+      SendData.TXLen = uart2_tx_len;
+      (void)FREQ2_4G_SendClc(&SendData);
+      FREQ2_4G_ReadInit();
+      HAL_IWDG_Refresh(&hiwdg);
+    }
   }
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
+
+  /* 读取 2.4G 数据；通道0转发到 UART1，通道1转发到 UART2 */
+  if ((FREQ2_4G_ReadClc(&Data) == HAL_OK) &&
+      (Data.RXLen > 0U) &&
+      (Data.RXLen <= RF_DATA_LEN))
+  {
+    if (Data.RX_PIN == 0U)
+    {
+      Uart_Send(&huart1, RXData, Data.RXLen);
+    }
+    else if (Data.RX_PIN == 1U)
+    {
+      Uart_Send(&huart2, RXData, Data.RXLen);
+    }
+  }
+  }
+
   /* USER CODE END 3 */
 }
 

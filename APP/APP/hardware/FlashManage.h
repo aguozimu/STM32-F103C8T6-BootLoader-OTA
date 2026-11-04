@@ -3,8 +3,12 @@
 
 
 #include "stm32f1xx_hal.h" 
-#define BackupPageADD1 0x800C000 
-#define BackupPageADD2 0x800C400 
+#define BackupPageADD1 0x8007C00 
+#define BackupPageADD2 0x800BC00 
+#define BackupPageADD3 0x800FC00 
+
+
+
 
 typedef struct {
 	uint32_t Page_ADD;

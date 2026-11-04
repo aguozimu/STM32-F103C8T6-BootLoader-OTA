@@ -69,6 +69,7 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 |-- README.md
 |-- .gitignore
 |-- ref/                                    # 参考资料（SI24R1 数据手册、板卡原理图）
+|-- doc/                                    # OTA 通讯协议文档（上位机 / 设备各 3 份）
 |-- APP/
 |   `-- APP/                                # 应用程序工程
 |       |-- APP.ioc                         # STM32CubeMX 工程文件
@@ -155,3 +156,5 @@ cmake --build --preset Debug
 | 2026-10-26 | 2.4G 接收完一帧后按通道选择串口：通道 0 从 USART1 TX 输出，通道 1 从 USART2 TX 输出；接收缓冲扩至 32 字节，支持最大动态负载 |
 | 2026-10-26 | UART2 接收缓冲、环形队列、空闲/错误回调与发送封装迁移至 `hardware/Uart.c/.h`；取消 2.4G 上电稳定等待，初始化后直接进入接收模式 |
 | 2026-10-26 | UART2 环形缓冲扩至 1024 字节；收到 UART2 数据后只发送一次，随后立即恢复接收模式，发送失败不重试 |
+| 2026-11-03 | 新增 `doc/` 上位机与设备 OTA 通讯协议文档各 3 份（完整规范、简明说明、对接测试清单） |
+| 2026-11-04 | `FlashManage` 备份页宏同步到新分区：`BackupPageADD1=0x08007C00`、`ADD2=0x0800BC00`、新增 `ADD3=0x0800FC00` |

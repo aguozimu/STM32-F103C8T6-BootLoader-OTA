@@ -99,12 +99,18 @@ void FlashManage_BackupWritePage(Data_Backup Data){
 	MyFLASH_ProgramWord(BackupPageADD+0x78U,Data.Page15.Page_CRC);
 	
 	//	/*第十六页CRC*//*数据备份区域*/
-//	MyFLASH_ProgramWord(BackupPageADD+0x7CU,Data.Page16.Page_ADD);
-//	MyFLASH_ProgramWord(BackupPageADD+0x80U,Data.Page16.Page_CRC);
+	MyFLASH_ProgramWord(BackupPageADD+0x7CU,Data.Page16.Page_ADD);
+	MyFLASH_ProgramWord(BackupPageADD+0x80U,Data.Page16.Page_CRC);
 		
 }
 
+void TXD_Send(uint8_t* TXD){
 
+
+
+}
+	
+	
 
 void FlashManage_HCC  (uint8_t* RXData,uint8_t* TXData){
 	
@@ -117,7 +123,7 @@ while(1){
 	uint8_t Data_Dat[4];/*帧数据*/
 	uint8_t Data_CRC[4];/*帧CRC(数据段)* /
 
-/*			1bit/6bit/1bit/4bit/4bit 				 */
+/*			1bye/6bye/1bye/4bye/4bye 				 */
 /*Data为	帧头/类型/编号/数据段/CRC(数据段)			*/
 
 
@@ -158,7 +164,7 @@ if(Data_Head[0]==0xA5){
 		/*回发CRC校验值*/
 
 /*		帧头/类型/编号/数据段/CRC校验值/CRC(数据段)					*/		
-/*		0xA5/ARKCRC/当前编号/CRC校验值/CRC(数据段)    				*/
+/*		0xA5/AckCRC/当前编号/CRC校验值/CRC(数据段)    				*/
 
 		/*发送结束帧(最后单独发送一次)*/
 /*		0xA5/SetEnd/0x00/当前状态/CRC(数据段)    		*/

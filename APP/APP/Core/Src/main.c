@@ -107,6 +107,9 @@ uint8_t uart2_tx_len=0;                             /* 本次从环形缓冲区�
 ReadClc_Data Data={0};
 SendClc_Data SendData={0};
 
+/* 开机元数据初始化：刷新 APP_MID、运行状态、页地址与页 CRC */
+FlashManage_FirstOnly();
+
 /* 启动 TIM2 时基，初始化 UART2 接收，并直接进入 2.4G 接收模式 */
 TIM_LED_Start();
 Uart2_Init();
@@ -137,11 +140,13 @@ Data.TXLen=1;
     uart2_tx_len = Uart2_Read(UART2_TXData, UART2_RF_PAYLOAD_MAX);
     if (uart2_tx_len > 0U)
     {
-      FREQ2_4G_SendInit();
-      SendData.TXData = UART2_TXData;
-      SendData.TXLen = uart2_tx_len;
-      (void)FREQ2_4G_SendClc(&SendData);
-      FREQ2_4G_ReadInit();
+//      FREQ2_4G_SendInit();
+//      SendData.TXData = UART2_TXData;
+//      SendData.TXLen = uart2_tx_len;
+//      (void)FREQ2_4G_SendClc(&SendData);
+//      FREQ2_4G_ReadInit();
+		uint8_t RX[20];
+		FlashManage_HCC(UART2_TXData,RX);
       HAL_IWDG_Refresh(&hiwdg);
     }
   }

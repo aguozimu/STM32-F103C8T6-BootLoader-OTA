@@ -37,12 +37,12 @@ APP 通过 **SI24R1（2.4G，nRF24L01 兼容）** 无线收发数据；UART2 数
 
 ## 2. Flash 分区
 
-| 区域 | 起始地址 | 大小 |
-| --- | --- | --- |
-| BootLoader | `0x08000000` | `0x00004000`（16 KB） |
-| APP（一号程序区） | `0x08004000` | `0x00004000`（16 KB，Keil IROM1） |
-| 二号程序区（升级缓存） | `0x08008000` | `0x00004000`（16 KB） |
-| 数据备份区 | `0x0800C000` | `0x00004000`（16 KB，1 KB/页） |
+| 区域 | 起始地址 | 程序数据 | 控制页 |
+| --- | --- | --- | --- |
+| BootLoader | `0x08000000` | `0x00004000`（16 KB） | — |
+| 一号运行区（APP） | `0x08004000` | `0x08004000~0x08007BFF`（15 KB，Keil IROM1=`0x3C00`） | `0x08007C00~0x08007FFF` |
+| 二号区（升级缓存/备份） | `0x08008000` | `0x08008000~0x0800BBFF`（15 KB） | `0x0800BC00~0x0800BFFF` |
+| 三号区 | `0x0800C000` | `0x0800C000~0x0800FBFF`（15 KB） | `0x0800FC00~0x0800FFFF` |
 
 BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/main.c`）：
 
@@ -54,7 +54,7 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 
 > BootLoader 在跳转前还会判断复位源并清除复位标志：`RCC_FLAG_IWDGRST`（看门狗复位）成立时不跳转 APP，而是进入安全模式——由 TIM1（100 ms）驱动 PB12 LED 闪烁并在主循环中喂狗；其他复位（上电 / 按键 / 软件）才跳转 APP。
 >
-> OTA 基础组件已落地：CRC（CRC 外设 + HAL 驱动）、Flash 读写/擦除（`hardware/MyFLASH.c`）与备份元数据（`hardware/FlashManage.c`，记录版本号、运行状态、代码区域及 16 页地址/CRC）；固件搬运与校验主流程仍在开发中。
+> OTA 基础组件已落地：CRC（CRC 外设 + HAL 驱动）、Flash 读写/擦除（`hardware/MyFLASH.c`）、控制页与备份元数据（`hardware/FlashManage.c`，含开机初始化 `FlashManage_FirstOnly()`）；已实现 `GetCRC` / `GetMID` / `GetSta` 查询事务与 `AckCRC` 停等确认；`SetDat` 数据写入、自动选槽与校验状态机仍在开发中。
 >
 > ⚠️ 注意：CubeMX 生成的 GCC 链接脚本 `STM32F103xx_FLASH.ld` 中 APP 的 `FLASH` 起始地址仍为 `0x8000000`，
 > 与 Keil 工程的 `0x8004000` 不一致。若用 CMake 构建 APP，需先把该链接脚本的 FLASH ORIGIN 改为 `0x8004000`、
@@ -157,4 +157,5 @@ cmake --build --preset Debug
 | 2026-10-26 | UART2 接收缓冲、环形队列、空闲/错误回调与发送封装迁移至 `hardware/Uart.c/.h`；取消 2.4G 上电稳定等待，初始化后直接进入接收模式 |
 | 2026-10-26 | UART2 环形缓冲扩至 1024 字节；收到 UART2 数据后只发送一次，随后立即恢复接收模式，发送失败不重试 |
 | 2026-11-03 | 新增 `doc/` 上位机与设备 OTA 通讯协议文档各 3 份（完整规范、简明说明、对接测试清单） |
+| 2026-11-07 | OTA 查询事务落地（`GetCRC`/`GetMID`/`GetSta` + `AckCRC`），新增 `FlashManage_FirstOnly()` 开机写控制页与 `APP_MID=0x0002`；APP 链接上限调整为 15 KB（`0x3C00`），Keil 构建自动生成 `APP.bin` |
 | 2026-11-04 | `FlashManage` 备份页宏同步到新分区：`BackupPageADD1=0x08007C00`、`ADD2=0x0800BC00`、新增 `ADD3=0x0800FC00` |

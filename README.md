@@ -54,7 +54,7 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 
 > BootLoader 在跳转前还会判断复位源并清除复位标志：`RCC_FLAG_IWDGRST`（看门狗复位）成立时不跳转 APP，而是进入安全模式——由 TIM1（100 ms）驱动 PB12 LED 闪烁并在主循环中喂狗；其他复位（上电 / 按键 / 软件）才跳转 APP。
 >
-> OTA 基础组件已落地：CRC（CRC 外设 + HAL 驱动）、Flash 读写/擦除（`hardware/MyFLASH.c`）、控制页与备份元数据（`hardware/FlashManage.c`，含开机初始化 `FlashManage_FirstOnly()`）；已实现 `GetCRC` / `GetMID` / `GetSta` 查询事务与 `AckCRC` 停等确认；`SetDat` 数据写入、自动选槽与校验状态机仍在开发中。
+> OTA 基础组件已落地：CRC（CRC 外设 + HAL 驱动）、Flash 读写/擦除（`hardware/MyFLASH.c`）、控制页与备份元数据（`hardware/FlashManage.c`，含开机初始化 `FlashManage_FirstOnly()`）；已实现 `GetCRC` / `GetMID` / `GetSta` 查询事务、`AckCRC` 停等确认、`SetDat` 控制页/程序页接收与逐页擦写、非零 CRC 页复制、自动选槽、`SetEnd` 全量校验与成功/失败回报。实机联调与收帧健壮性（拆包/粘包）仍待完善。
 >
 > ⚠️ 注意：CubeMX 生成的 GCC 链接脚本 `STM32F103xx_FLASH.ld` 中 APP 的 `FLASH` 起始地址仍为 `0x8000000`，
 > 与 Keil 工程的 `0x8004000` 不一致。若用 CMake 构建 APP，需先把该链接脚本的 FLASH ORIGIN 改为 `0x8004000`、
@@ -159,3 +159,4 @@ cmake --build --preset Debug
 | 2026-11-03 | 新增 `doc/` 上位机与设备 OTA 通讯协议文档各 3 份（完整规范、简明说明、对接测试清单） |
 | 2026-11-07 | OTA 查询事务落地（`GetCRC`/`GetMID`/`GetSta` + `AckCRC`），新增 `FlashManage_FirstOnly()` 开机写控制页与 `APP_MID=0x0002`；APP 链接上限调整为 15 KB（`0x3C00`），Keil 构建自动生成 `APP.bin` |
 | 2026-11-04 | `FlashManage` 备份页宏同步到新分区：`BackupPageADD1=0x08007C00`、`ADD2=0x0800BC00`、新增 `ADD3=0x0800FC00` |
+| 2026-11-08 | 实现 SetDat 主体流程（控制页接收、自动选槽、非零 CRC 页复制、程序页逐块写入与 CRC 回读）与 SetEnd 全量校验/成功失败回报；MyFLASH 新增连续读写 Buffer 接口；`APP_MID` 改为 `0x0003` |

@@ -1,4 +1,5 @@
 #include "Mydef.h"
+#include "iwdg.h"
 
 /* OTA 停等确认：每帧等待 500 ms，超时后最多重发 5 次 */
 #define OTA_ACK_TIMEOUT_MS 500U
@@ -41,13 +42,28 @@
 /*程序区域第16页CRC*//*4字节*/
 
 
-/* 计算一个 1 KB Flash 页的 STM32F1 硬件 CRC，输入为 256 个小端 uint32_t 字 */
+/* 计算一个 1 KB 页缓冲区的 STM32F1 硬件 CRC */
+static uint32_t FlashManage_BufferCRC(const uint32_t* data){
+	return HAL_CRC_Calculate(&hcrc, (uint32_t*)data, OTA_PAGE_WORD_COUNT);
+}
+
+/* 计算一个 1 KB Flash 页的硬件 CRC */
 static uint32_t FlashManage_FlashPageCRC(uint32_t page_address){
-	return HAL_CRC_Calculate(&hcrc, (uint32_t*)page_address, OTA_PAGE_SIZE / sizeof(uint32_t));
+	return FlashManage_BufferCRC((const uint32_t*)page_address);
+}
+
+/* 首次烧录检测：控制页仍为 0xFF 时，将该槽元数据整体初始化为 EMPTY(0x00) */
+static void FlashManage_InitEmptyBackup(uint32_t backup_page){
+	Data_Backup empty = {0};
+	empty.Run_status = OTA_RUN_STATUS_EMPTY;
+
+	if (MyFLASH_ReadByte(backup_page + 0x02U) == 0xFFU){
+		FlashManage_BackupWritePage(backup_page, &empty);
+	}
 }
 
 /*
- * 开机只执行一次：刷新一号运行区元数据。
+ * 开机只执行一次：刷新一号运行区元数据，并初始化首次烧录的二、三号空槽。
  * 写入 APP_MID、RUNNING 状态、15 个程序页 CRC 和控制页 CRC，
  * 供 GetMID、GetCRC、自动选槽及后续 OTA 流程直接读取。
  */
@@ -72,6 +88,10 @@ void FlashManage_FirstOnly(void){
 	FlashManage_BackupWritePage(BackupPageADD1, &data);
 	control_page_crc = FlashManage_FlashPageCRC(BackupPageADD1);
 	MyFLASH_ProgramWord(BackupPageADD1 + 0x80U, control_page_crc);
+
+	/* 第一次烧录程序时，二、三号槽元数据仍为 0xFF，写入全 0 的 EMPTY 元数据 */
+	FlashManage_InitEmptyBackup(BackupPageADD2);
+	FlashManage_InitEmptyBackup(BackupPageADD3);
 }
 
 /* 将一份元数据写入指定备份页；backup_page 可为 BackupPageADD1/2/3 */
@@ -159,6 +179,7 @@ static uint8_t FlashManage_WaitAck(uint8_t number, uint32_t crc){
 	uint32_t start_tick = HAL_GetTick();
 
 	while ((HAL_GetTick() - start_tick) < OTA_ACK_TIMEOUT_MS){
+		HAL_IWDG_Refresh(&hiwdg);
 		if ((Uart2_Read(frame, OTA_FRAME_LEN) == OTA_FRAME_LEN) &&
 		    (memcmp(&frame[1], "AckCRC", 6U) == 0) &&
 		    (frame[7] == number) &&
@@ -208,15 +229,393 @@ static uint32_t FlashManage_MakeStatus(uint8_t run_status, uint8_t page, uint8_t
 	       ((uint32_t)error << 24U);
 }
 
-/* 通用状态帧：Run_status 取当前控制页，Page 由调用者指定，Block 不适用填 0xFF */
-static uint8_t FlashManage_SendStatusFrame(const char* type, uint8_t page, uint8_t error){
+/* SetDat 状态类型由 FlashManage.h 提供，实例仅在本文件内部使用 */
+static const FlashManage_Slot FlashManage_Slots[2] = {
+	{BackupPageADD2, APP_SLOT2_BASE},
+	{BackupPageADD3, APP_SLOT3_BASE}
+};
+
+/* 1 KB 接收页缓冲；words 保证写 Flash 时的 32 位对齐 */
+static union {
+	uint32_t words[OTA_PAGE_WORD_COUNT];
+	uint8_t bytes[OTA_PAGE_SIZE];
+} FlashManage_PageBuffer;
+
+static FlashManage_OtaState FlashManage_Ota;
+
+/* 16 位程序 ID 回绕比较：a 比 b 新时返回 1 */
+static uint8_t FlashManage_IsNewerProgramID(uint16_t a, uint16_t b){
+	uint16_t delta = (uint16_t)(a - b);
+	return ((delta != 0U) && (delta < 0x8000U)) ? 1U : 0U;
+}
+
+/* 根据二、三号槽 Run_status、PAUSED 续传 ID 和有效备份 ID 选择目标槽 */
+static uint8_t FlashManage_SelectTargetSlot(uint16_t program_id){
+	uint8_t status2 = FlashManage_ReadRunStatus(BackupPageADD2);
+	uint8_t status3 = FlashManage_ReadRunStatus(BackupPageADD3);
+	uint16_t id2 = MyFLASH_ReadHalfWord(BackupPageADD2);
+	uint16_t id3 = MyFLASH_ReadHalfWord(BackupPageADD3);
+
+	if ((status2 == OTA_RUN_STATUS_PAUSED) && (id2 == program_id)){
+		return 0U;
+	}
+	if ((status3 == OTA_RUN_STATUS_PAUSED) && (id3 == program_id)){
+		return 1U;
+	}
+
+	/* 非有效备份的槽可优先作为目标，避免覆盖唯一 VALID_BACKUP */
+	if ((status2 != OTA_RUN_STATUS_VALID_BACKUP) && (status2 != OTA_RUN_STATUS_RUNNING)){
+		return 0U;
+	}
+	if ((status3 != OTA_RUN_STATUS_VALID_BACKUP) && (status3 != OTA_RUN_STATUS_RUNNING)){
+		return 1U;
+	}
+
+	if ((status2 == OTA_RUN_STATUS_VALID_BACKUP) && (status3 == OTA_RUN_STATUS_VALID_BACKUP)){
+		return FlashManage_IsNewerProgramID(id2, id3) ? 1U : 0U;
+	}
+	if (status2 == OTA_RUN_STATUS_VALID_BACKUP){
+		return 1U;
+	}
+	if (status3 == OTA_RUN_STATUS_VALID_BACKUP){
+		return 0U;
+	}
+	return 0xFFU;
+}
+
+/* 返回页掩码中编号最小的待写页 */
+static uint8_t FlashManage_FirstPendingPage(uint16_t pending_pages){
+	uint8_t page;
+
+	for (page = 0U; page < OTA_PROGRAM_PAGE_COUNT; page++){
+		if ((pending_pages & (uint16_t)(1U << page)) != 0U){
+			return page;
+		}
+	}
+	return OTA_DATA_AREA_COMPLETE;
+}
+
+/* 发送指定目标状态下的 SetEro 状态帧 */
+static void FlashManage_SendOtaError(uint8_t run_status, uint8_t page, uint8_t block, uint8_t error){
+	(void)FlashManage_SendAndWaitAck("SetEro", 0U,
+		FlashManage_MakeStatus(run_status, page, block, error));
+}
+
+/* 更新并重写目标槽控制页，同时重算 Page16 自身 CRC */
+static void FlashManage_WriteControlPage(uint32_t control_page, Data_Backup* data, uint8_t run_status, uint8_t data_area){
+	data->Run_status = run_status;
+	data->Data_area = data_area;
+	data->Page[15].Page_ADD = control_page;
+	data->Page[15].Page_CRC = 0U;
+
+	FlashManage_BackupWritePage(control_page, data);
+	data->Page[15].Page_CRC = FlashManage_FlashPageCRC(control_page);
+	MyFLASH_ProgramWord(control_page + 0x80U, data->Page[15].Page_CRC);
+}
+
+/* 校验上位机控制页 ID、相对地址和 Page16 CRC */
+static uint8_t FlashManage_ControlPageIsValid(const Data_Backup* data){
+	uint8_t page;
+	uint32_t control_crc = data->Page[15].Page_CRC;
+
+	if (data->ID == 0U){
+		return 0U;
+	}
+	for (page = 0U; page < OTA_PAGE_COUNT; page++){
+		if (data->Page[page].Page_ADD != ((uint32_t)page * OTA_PAGE_SIZE)){
+			return 0U;
+		}
+	}
+
+	FlashManage_WriteU32(&FlashManage_PageBuffer.bytes[0x80], 0U);
+	return (FlashManage_BufferCRC(FlashManage_PageBuffer.words) == control_crc) ? 1U : 0U;
+}
+
+/* 将当前页缓冲写入指定 Flash 页，并回读校验预期 CRC */
+static uint8_t FlashManage_WritePageFromBuffer(uint32_t page_address, uint32_t expected_crc){
+	MyFLASH_ErasePage(page_address);
+	MyFLASH_ProgramBuffer(page_address, FlashManage_PageBuffer.words, OTA_PAGE_WORD_COUNT);
+	return (FlashManage_FlashPageCRC(page_address) == expected_crc) ? 1U : 0U;
+}
+
+/* 从任意源页复制 1 KB 到目标页；源页和目标页 CRC 都必须匹配预期值 */
+static uint8_t FlashManage_CopyPage(uint32_t source_address, uint32_t target_address, uint32_t expected_crc){
+	MyFLASH_ReadBuffer(source_address, FlashManage_PageBuffer.words, OTA_PAGE_WORD_COUNT);
+	if (FlashManage_BufferCRC(FlashManage_PageBuffer.words) != expected_crc){
+		return 0U;
+	}
+	return FlashManage_WritePageFromBuffer(target_address, expected_crc);
+}
+
+/* 将控制页中 CRC 非 0 的页从指定源槽复制到目标槽，返回失败页号或 0xFF */
+static uint8_t FlashManage_CopyNonZeroPages(uint32_t source_base){
+	uint8_t page;
+
+	for (page = 0U; page < OTA_PROGRAM_PAGE_COUNT; page++){
+		uint32_t expected_crc = FlashManage_Ota.metadata.Page[page].Page_CRC;
+		uint32_t source_address = source_base + ((uint32_t)page * OTA_PAGE_SIZE);
+		uint32_t target_address = FlashManage_Ota.data_base + ((uint32_t)page * OTA_PAGE_SIZE);
+
+		if (expected_crc == 0U){
+			continue;
+		}
+		if (!FlashManage_CopyPage(source_address, target_address, expected_crc)){
+			return page;
+		}
+		HAL_IWDG_Refresh(&hiwdg);
+	}
+	return OTA_DATA_AREA_COMPLETE;
+}
+
+/* 控制页接收完成：校验、选槽、转换为绝对地址并写入 RECEIVING 元数据 */
+static void FlashManage_CompleteControlPage(void){
+	Data_Backup data;
+	uint8_t slot;
+	uint8_t page;
+	uint8_t copy_page;
+	uint16_t pending_pages = 0U;
+
+	memcpy(&data, FlashManage_PageBuffer.bytes, sizeof(data));
+	if (!FlashManage_ControlPageIsValid(&data)){
+		FlashManage_Ota.stage = FLASHMANAGE_OTA_IDLE;
+		FlashManage_SendOtaError(OTA_RUN_STATUS_PAUSED, 0xFFU, 0xFFU, OTA_ERROR_CONTROL_PAGE_INVALID);
+		return;
+	}
+
+	slot = FlashManage_SelectTargetSlot(data.ID);
+	if (slot == 0xFFU){
+		FlashManage_Ota.stage = FLASHMANAGE_OTA_IDLE;
+		FlashManage_SendOtaError(OTA_RUN_STATUS_PAUSED, 0xFFU, 0xFFU, OTA_ERROR_NO_WRITABLE_SLOT);
+		return;
+	}
+
+	FlashManage_Ota.control_page = FlashManage_Slots[slot].control_page;
+	FlashManage_Ota.data_base = FlashManage_Slots[slot].data_base;
+	FlashManage_Ota.metadata = data;
+
+	for (page = 0U; page < OTA_PROGRAM_PAGE_COUNT; page++){
+		FlashManage_Ota.metadata.Page[page].Page_ADD =
+			FlashManage_Ota.data_base + ((uint32_t)page * OTA_PAGE_SIZE);
+		if (FlashManage_Ota.metadata.Page[page].Page_CRC == 0U){
+			pending_pages |= (uint16_t)(1U << page);
+		}
+	}
+	FlashManage_Ota.metadata.Page[15].Page_ADD =
+		FlashManage_Ota.data_base + OTA_CONTROL_PAGE_OFFSET;
+
+	/* CRC 非 0 页先从运行区转移到目标槽，全部成功后才写控制页进入下一步 */
+	copy_page = FlashManage_CopyNonZeroPages(APP_RUN_BASE);
+	if (copy_page != OTA_DATA_AREA_COMPLETE){
+		FlashManage_Ota.metadata.Page[copy_page].Page_CRC = 0U;
+		FlashManage_WriteControlPage(FlashManage_Ota.control_page, &FlashManage_Ota.metadata,
+			OTA_RUN_STATUS_PAUSED, copy_page);
+		FlashManage_Ota.stage = FLASHMANAGE_OTA_WAIT_END;
+		FlashManage_SendOtaError(OTA_RUN_STATUS_PAUSED, copy_page, 0xFFU, OTA_ERROR_PAGE_CRC_MISMATCH);
+		return;
+	}
+
+	FlashManage_Ota.pending_pages = pending_pages;
+	FlashManage_Ota.current_page = FlashManage_FirstPendingPage(pending_pages);
+	FlashManage_Ota.next_block = 0U;
+	FlashManage_Ota.stage = (FlashManage_Ota.current_page == OTA_DATA_AREA_COMPLETE)
+		? FLASHMANAGE_OTA_WAIT_END : FLASHMANAGE_OTA_PAGE;
+
+	FlashManage_WriteControlPage(FlashManage_Ota.control_page, &FlashManage_Ota.metadata,
+		(FlashManage_Ota.stage == FLASHMANAGE_OTA_WAIT_END)
+			? OTA_RUN_STATUS_VERIFYING : OTA_RUN_STATUS_RECEIVING,
+		FlashManage_Ota.current_page);
+}
+
+/* 程序页收满：擦除、写入、回读 CRC，更新控制页并推进到下一页 */
+static void FlashManage_CompleteProgramPage(void){
+	uint8_t page = FlashManage_Ota.current_page;
+	uint32_t data_address = FlashManage_Ota.data_base + ((uint32_t)page * OTA_PAGE_SIZE);
+	uint32_t page_crc = FlashManage_BufferCRC(FlashManage_PageBuffer.words);
+	uint8_t next_page;
+	uint8_t run_status;
+	uint8_t data_area;
+
+	if (!FlashManage_WritePageFromBuffer(data_address, page_crc)){
+		FlashManage_Ota.metadata.Page[page].Page_CRC = 0U;
+		FlashManage_WriteControlPage(FlashManage_Ota.control_page, &FlashManage_Ota.metadata,
+			OTA_RUN_STATUS_PAUSED, page);
+		FlashManage_Ota.stage = FLASHMANAGE_OTA_WAIT_END;
+		FlashManage_SendOtaError(OTA_RUN_STATUS_PAUSED, page, 0xFFU, OTA_ERROR_PAGE_CRC_MISMATCH);
+		return;
+	}
+
+	FlashManage_Ota.metadata.Page[page].Page_CRC = page_crc;
+	FlashManage_Ota.pending_pages &= (uint16_t)~(uint16_t)(1U << page);
+	next_page = FlashManage_FirstPendingPage(FlashManage_Ota.pending_pages);
+	run_status = (next_page == OTA_DATA_AREA_COMPLETE)
+		? OTA_RUN_STATUS_VERIFYING : OTA_RUN_STATUS_RECEIVING;
+	data_area = (next_page == OTA_DATA_AREA_COMPLETE) ? OTA_DATA_AREA_COMPLETE : page;
+
+	FlashManage_WriteControlPage(FlashManage_Ota.control_page, &FlashManage_Ota.metadata,
+		run_status, data_area);
+	FlashManage_Ota.current_page = next_page;
+	FlashManage_Ota.next_block = 0U;
+	FlashManage_Ota.stage = (next_page == OTA_DATA_AREA_COMPLETE)
+		? FLASHMANAGE_OTA_WAIT_END : FLASHMANAGE_OTA_PAGE;
+}
+
+/* SetDat 接收入口：处理首帧、停等 ACK、重复帧和块序号 */
+void FlashManage_HandleSetDat(uint8_t* RXData){
+	uint8_t block = RXData[7];
+	uint32_t frame_crc = FlashManage_ReadU32(&RXData[12]);
+
+	if (!FlashManage_FrameIsValid(RXData)){
+		return;
+	}
+
+	if (FlashManage_Ota.stage == FLASHMANAGE_OTA_IDLE){
+		FlashManage_SendAck(RXData);
+		if (block != 0U){
+			FlashManage_SendOtaError(OTA_RUN_STATUS_PAUSED, 0xFFU, block, OTA_ERROR_SEQUENCE);
+			return;
+		}
+		FlashManage_Ota.stage = FLASHMANAGE_OTA_CONTROL;
+		FlashManage_Ota.pending_pages = 0U;
+		FlashManage_Ota.next_block = 0U;
+		FlashManage_Ota.current_page = 0xFFU;
+		FlashManage_Ota.last_block = 0xFFU;
+		FlashManage_Ota.last_frame_crc = 0U;
+	}
+
+	/* 重复帧只重发 AckCRC，不重复采样或写 Flash */
+	if ((block == FlashManage_Ota.last_block) &&
+	    (frame_crc == FlashManage_Ota.last_frame_crc)){
+		FlashManage_SendAck(RXData);
+		return;
+	}
+
+	if (FlashManage_Ota.stage == FLASHMANAGE_OTA_WAIT_END){
+		FlashManage_SendAck(RXData);
+		FlashManage_SendOtaError(OTA_RUN_STATUS_VERIFYING, 0xFFU, block, OTA_ERROR_INVALID_STATE);
+		return;
+	}
+
+	FlashManage_SendAck(RXData);
+	if (block != FlashManage_Ota.next_block){
+		FlashManage_SendOtaError(
+			(FlashManage_Ota.stage == FLASHMANAGE_OTA_CONTROL)
+				? OTA_RUN_STATUS_PAUSED : FlashManage_Ota.metadata.Run_status,
+			FlashManage_Ota.current_page, block, OTA_ERROR_SEQUENCE);
+		return;
+	}
+
+	memcpy(&FlashManage_PageBuffer.bytes[(uint32_t)block * 4U], &RXData[8], 4U);
+	FlashManage_Ota.next_block = (uint16_t)block + 1U;
+	FlashManage_Ota.last_block = block;
+	FlashManage_Ota.last_frame_crc = frame_crc;
+
+	if (FlashManage_Ota.next_block == OTA_BLOCK_COUNT){
+		if (FlashManage_Ota.stage == FLASHMANAGE_OTA_CONTROL){
+			FlashManage_CompleteControlPage();
+		}else{
+			FlashManage_CompleteProgramPage();
+		}
+	}
+}
+
+/* 发送指定状态记录的业务帧，并等待上位机确认 */
+static uint8_t FlashManage_SendStatusData(const char* type, uint8_t run_status, uint8_t page, uint8_t block, uint8_t error){
 	return FlashManage_SendAndWaitAck(type, 0U,
-		FlashManage_MakeStatus(FlashManage_ReadRunStatus(BackupPageADD1), page, 0xFFU, error));
+		FlashManage_MakeStatus(run_status, page, block, error));
+}
+
+/* 当前运行区查询状态帧：Block 不适用填 0xFF */
+static uint8_t FlashManage_SendStatusFrame(const char* type, uint8_t page, uint8_t error){
+	return FlashManage_SendStatusData(type, FlashManage_ReadRunStatus(BackupPageADD1), page, 0xFFU, error);
 }
 
 /* 查询事务结束：Page 不适用时使用 0xFF，附加指定错误码 */
 static void FlashManage_SendQueryEnd(uint8_t error){
 	(void)FlashManage_SendStatusFrame("SetEnd", 0xFFU, error);
+}
+
+/* 最终验证目标槽 15 个程序页和 Page16 控制页 CRC */
+static uint8_t FlashManage_VerifyTargetImage(uint8_t* failed_page){
+	uint8_t page;
+
+	for (page = 0U; page < OTA_PROGRAM_PAGE_COUNT; page++){
+		uint32_t address = FlashManage_Ota.data_base + ((uint32_t)page * OTA_PAGE_SIZE);
+		if (FlashManage_FlashPageCRC(address) != FlashManage_Ota.metadata.Page[page].Page_CRC){
+			*failed_page = page;
+			return 0U;
+		}
+	}
+
+	MyFLASH_ReadBuffer(FlashManage_Ota.control_page, FlashManage_PageBuffer.words, OTA_PAGE_WORD_COUNT);
+	FlashManage_WriteU32(&FlashManage_PageBuffer.bytes[0x80], 0U);
+	if (FlashManage_BufferCRC(FlashManage_PageBuffer.words) != FlashManage_Ota.metadata.Page[15].Page_CRC){
+		*failed_page = 0xFFU;
+		return 0U;
+	}
+	return 1U;
+}
+
+/* 成功收尾：SetMID + 16 帧 SetCRC + SetSta + SetEnd */
+static uint8_t FlashManage_SendFinalSuccess(void){
+	uint8_t page;
+
+	if (!FlashManage_SendAndWaitAck("SetMID", 0U, FlashManage_Ota.metadata.ID)){
+		return 0U;
+	}
+	for (page = 0U; page < OTA_PAGE_COUNT; page++){
+		if (!FlashManage_SendAndWaitAck("SetCRC", page, FlashManage_Ota.metadata.Page[page].Page_CRC)){
+			return 0U;
+		}
+	}
+	if (!FlashManage_SendStatusData("SetSta", OTA_RUN_STATUS_VALID_BACKUP, 0xFFU, 0xFFU, OTA_ERROR_NONE)){
+		return 0U;
+	}
+	return FlashManage_SendStatusData("SetEnd", OTA_RUN_STATUS_VALID_BACKUP, 0xFFU, 0xFFU, OTA_ERROR_NONE);
+}
+
+/* 失败收尾：SetEro + SetSta + SetEnd */
+static void FlashManage_SendFinalFailure(uint8_t page, uint8_t error){
+	FlashManage_SendOtaError(OTA_RUN_STATUS_ERROR, page, 0xFFU, error);
+	(void)FlashManage_SendStatusData("SetSta", OTA_RUN_STATUS_ERROR, 0xFFU, 0xFFU, error);
+	(void)FlashManage_SendStatusData("SetEnd", OTA_RUN_STATUS_ERROR, 0xFFU, 0xFFU, error);
+}
+
+/* SetEnd 收尾：最终校验成功后上报目标信息，失败则进入 ERROR 状态 */
+static void FlashManage_HandleSetEnd(uint8_t* RXData){
+	uint8_t failed_page = 0xFFU;
+
+	if (!FlashManage_FrameIsValid(RXData)){
+		return;
+	}
+	FlashManage_SendAck(RXData);
+
+	if (FlashManage_Ota.stage != FLASHMANAGE_OTA_WAIT_END){
+		FlashManage_SendOtaError(
+			(FlashManage_Ota.stage == FLASHMANAGE_OTA_CONTROL)
+				? OTA_RUN_STATUS_PAUSED : FlashManage_Ota.metadata.Run_status,
+			FlashManage_Ota.current_page, 0xFFU, OTA_ERROR_INVALID_STATE);
+		return;
+	}
+
+	if (!FlashManage_VerifyTargetImage(&failed_page)){
+		if (failed_page < OTA_PROGRAM_PAGE_COUNT){
+			FlashManage_Ota.metadata.Page[failed_page].Page_CRC = 0U;
+		}
+		FlashManage_WriteControlPage(FlashManage_Ota.control_page, &FlashManage_Ota.metadata,
+			OTA_RUN_STATUS_ERROR, failed_page);
+		FlashManage_SendFinalFailure(failed_page, OTA_ERROR_FIRMWARE_VERIFY_FAIL);
+		FlashManage_Ota.stage = FLASHMANAGE_OTA_IDLE;
+		return;
+	}
+
+	FlashManage_WriteControlPage(FlashManage_Ota.control_page, &FlashManage_Ota.metadata,
+		OTA_RUN_STATUS_VALID_BACKUP, OTA_DATA_AREA_COMPLETE);
+	if (!FlashManage_SendFinalSuccess()){
+		FlashManage_WriteControlPage(FlashManage_Ota.control_page, &FlashManage_Ota.metadata,
+			OTA_RUN_STATUS_ERROR, OTA_DATA_AREA_COMPLETE);
+		FlashManage_SendFinalFailure(0xFFU, OTA_ERROR_TIMEOUT);
+	}
+	FlashManage_Ota.stage = FLASHMANAGE_OTA_IDLE;
 }
 
 void FlashManage_HCC  (uint8_t* RXData,uint8_t* TXData){
@@ -228,26 +627,8 @@ while(1){
 if(RXData[0] == 0xA5U){
 /*开始通讯*/
 	if(memcmp(&RXData[1], "SetDat", 6) == 0){
-
-		/*上位机数据传输*/
-		/*地址偏移（查看空闲区域）*/
-		/*每页编号0~255*/	
-/*		0xA5/SetDat/当前编号/DATA/CRC(数据段)    				*/
-		
-
-		/*CRC校验*/
-
-		/*存入缓存数组*/
-
-		/*回发CRC校验值*/
-
-/*		帧头/类型/编号/数据段/CRC校验值/CRC(数据段)					*/		
-/*		0xA5/AckCRC/当前编号/CRC校验值/CRC(数据段)    				*/
-
-		/*发送结束帧(最后单独发送一次)*/
-/*		0xA5/SetEnd/0x00/当前状态/CRC(数据段)    		*/
-
-	
+		FlashManage_HandleSetDat(RXData);
+		return;
 	}else if (memcmp(&RXData[1], "GetCRC", 6) == 0)
 	{
 		uint8_t page;
@@ -315,12 +696,8 @@ if(RXData[0] == 0xA5U){
 		/*0xA5/SetEnd/0x00/当前状态/CRC(数据段)*/
 
 	}else if (memcmp(&RXData[1], "SetEnd", 6) == 0){
-		/*上位机发送结束指令*/
-		/*0xA5/SetEnd/0x00/(uint32)0x00/CRC(数据段)*/
-
-		/*发送结束帧(最后单独发送一次)*/
-		/*0xA5/SetEnd/0x00/当前状态/CRC(数据段)*/
-
+		FlashManage_HandleSetEnd(RXData);
+		return;
 	}
 	
 	

@@ -160,3 +160,4 @@ cmake --build --preset Debug
 | 2026-11-07 | OTA 查询事务落地（`GetCRC`/`GetMID`/`GetSta` + `AckCRC`），新增 `FlashManage_FirstOnly()` 开机写控制页与 `APP_MID=0x0002`；APP 链接上限调整为 15 KB（`0x3C00`），Keil 构建自动生成 `APP.bin` |
 | 2026-11-04 | `FlashManage` 备份页宏同步到新分区：`BackupPageADD1=0x08007C00`、`ADD2=0x0800BC00`、新增 `ADD3=0x0800FC00` |
 | 2026-11-08 | 实现 SetDat 主体流程（控制页接收、自动选槽、非零 CRC 页复制、程序页逐块写入与 CRC 回读）与 SetEnd 全量校验/成功失败回报；MyFLASH 新增连续读写 Buffer 接口；`APP_MID` 改为 `0x0003` |
+| 2026-11-12 | 2.4G 接收前先读 `FIFO_STATUS`，RX FIFO 为空时直接返回，避免无效读；Keil 的 `fromelf` 生成 `APP.bin` 步骤由 BeforeMake 调整为 AfterMake（确保 bin 与本次 axf 一致） |

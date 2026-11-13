@@ -32,7 +32,7 @@
 #define SI24R1_STATUS  	  	  0x07u	  /*状态寄存器*/
 #define SI24R1_RSSI			  0x09u	  /*接收信号强度检测*/ 		
 #define SI24R1_RF_SETUP		  0x06u	  /*射频配置*/
-
+#define SI24R1_FIFO_STATUS	  0x17u   /*FIFO状态*/
 
 
 

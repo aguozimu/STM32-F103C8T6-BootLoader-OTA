@@ -316,6 +316,24 @@ uint8_t FREQ2_4G_ReadBag (Read_Data *DATA){
 	uint8_t RX_Len=0;
 	uint8_t STATUS=0;
 
+	//有数据再运行
+	uint8_t cmd = SI24R1_ReadRegister(SI24R1_FIFO_STATUS);
+    uint8_t fifoStatus = 0U;
+
+    SPI_CSN(0);
+    HAL_SPI_TransmitReceive(&hspi1, &cmd, &RX, 1, FREQ2_4G_SPI_TIMEOUT_MS);
+    cmd = 0x00U;
+    HAL_SPI_TransmitReceive(&hspi1, &cmd, &fifoStatus, 1, FREQ2_4G_SPI_TIMEOUT_MS);
+    SPI_CSN(1);
+
+    if ((fifoStatus & 0x01U) != 0U)
+    {
+        DATA->RXLen = 0U;
+        DATA->STATUS = 0x0EU;
+        return HAL_OK;
+    }
+	
+	
 	//获取收到字节数
 	SPI_CSN(0);
 	HAL_SPI_TransmitReceive(&hspi1,&TX,&STATUS,1,FREQ2_4G_SPI_TIMEOUT_MS);
@@ -328,7 +346,6 @@ uint8_t FREQ2_4G_ReadBag (Read_Data *DATA){
 	TX=SI24R1_NOP;
 	HAL_SPI_TransmitReceive(&hspi1,&TX,&STATUS,1,FREQ2_4G_SPI_TIMEOUT_MS);
 	SPI_CSN(1);
-	
 	};
 	
 	

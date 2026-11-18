@@ -10,7 +10,7 @@
 #define OTA_FRAME_LEN 16U
 
 /* 本 APP 的 MID（程序 ID）：16 位有效，0x0000 保留为无效值 */
-#define APP_MID 0x0003U
+#define APP_MID 0x0007U
 
 /* 运行区与 OTA 页布局：15 个程序页 + 1 个控制页，每页 1 KB */
 #define APP_RUN_BASE           0x08004000U
@@ -32,6 +32,9 @@
 #define OTA_RUN_STATUS_VALID_BACKUP 0x05U
 #define OTA_RUN_STATUS_RUNNING     0x06U
 #define OTA_RUN_STATUS_ERROR       0x07U
+#define OTA_RUN_STATUS_RUN_PENDING_CONFIRM 0x08U
+#define OTA_RUN_STATUS_RUN_CONFIRMED_OK    0x09U
+#define OTA_RUN_STATUS_RUN_CONFIRMED_BAD   0x0AU
 #define OTA_DATA_AREA_COMPLETE     0xFFU
 
 /* OTA 错误码 */
@@ -91,8 +94,14 @@ void FlashManage_HCC(uint8_t* RXData, uint8_t* TXData);
 /* SetDat 接收入口：维护控制页、程序页、ACK、选槽和 Flash 写入流程 */
 void FlashManage_HandleSetDat(uint8_t* RXData);
 
-/* 开机一次性初始化：写入一号运行区元数据并初始化首次烧录的二、三号空槽 */
-void FlashManage_FirstOnly(void);
+/* 开机按需初始化：仅一号槽控制页无效时重建，保留 BootLoader 写入状态 */
+void FlashManage_InitIfNeeded(void);
+
+/* 自检成功：一号槽转 0x06，匹配源槽转 0x09 */
+void FlashManage_ConfirmRunning(void);
+
+/* 自检失败：一号槽转 0x0A，匹配源槽同步 0x0A 后复位 */
+void FlashManage_RejectRunning(void);
 
 /* 将一份控制页元数据写入指定备份页 */
 void FlashManage_BackupWritePage(uint32_t backup_page, const Data_Backup* Data);

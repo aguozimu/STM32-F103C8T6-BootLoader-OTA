@@ -52,13 +52,13 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 4. `SCB->VTOR = 0x08004000` 重定向中断向量表；
 5. 以函数指针方式跳转到 APP 运行。
 
-> BootLoader 在跳转前还会判断复位源并清除复位标志：`RCC_FLAG_IWDGRST`（看门狗复位）成立时不跳转 APP，而是进入安全模式——由 TIM1（100 ms）驱动 PB12 LED 闪烁并在主循环中喂狗；其他复位（上电 / 按键 / 软件）才跳转 APP。
+> BootLoader 在跳转前还会判断复位源并清除复位标志：`RCC_FLAG_IWDGRST`（看门狗复位）成立时不跳转 APP，而是进入安全模式——由 TIM1（100 ms）驱动 PB12 LED 闪烁并在主循环中喂狗；其他复位（上电 / 按键 / 软件）先检查二、三号槽是否存在 `VALID_BACKUP`，有则把最新有效备份复制到一号运行区并把相关槽置为 `0x08`（RUN_PENDING_CONFIRM），随后跳转 APP。
 >
-> OTA 基础组件已落地：CRC（CRC 外设 + HAL 驱动）、Flash 读写/擦除（`hardware/MyFLASH.c`）、控制页与备份元数据（`hardware/FlashManage.c`，含开机初始化 `FlashManage_FirstOnly()`）；已实现 `GetCRC` / `GetMID` / `GetSta` 查询事务、`AckCRC` 停等确认、`SetDat` 控制页/程序页接收与逐页擦写、非零 CRC 页复制、自动选槽、`SetEnd` 全量校验与成功/失败回报。实机联调与收帧健壮性（拆包/粘包）仍待完善。
+> OTA 基础组件已落地：CRC（CRC 外设 + HAL 驱动）、Flash 读写/擦除（`hardware/MyFLASH.c`）、控制页与备份元数据（`hardware/FlashManage.c`，含幂等初始化 `FlashManage_InitIfNeeded()`）；已实现 `GetCRC` / `GetMID` / `GetSta` 查询事务、`AckCRC` 停等确认、`SetDat` 控制页/程序页接收与逐页擦写、非零 CRC 页复制、自动选槽、`SetEnd` 全量校验与成功/失败回报；BootLoader 支持 `VALID_BACKUP` 复制激活，APP 提供 `FlashManage_ConfirmRunning()` / `FlashManage_RejectRunning()` 自检确认/拒绝入口（当前 `ConfirmRunning()` 为占位调用，实际自检尚未接入）。实机联调与收帧健壮性（拆包/粘包）仍待完善。
 >
 > ⚠️ 注意：CubeMX 生成的 GCC 链接脚本 `STM32F103xx_FLASH.ld` 中 APP 的 `FLASH` 起始地址仍为 `0x8000000`，
 > 与 Keil 工程的 `0x8004000` 不一致。若用 CMake 构建 APP，需先把该链接脚本的 FLASH ORIGIN 改为 `0x8004000`、
-> LENGTH 改为 `16K`，否则会覆盖 BootLoader。
+> LENGTH 改为 `15K`，否则会覆盖 BootLoader。
 
 ---
 
@@ -69,7 +69,7 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 |-- README.md
 |-- .gitignore
 |-- ref/                                    # 参考资料（SI24R1 数据手册、板卡原理图）
-|-- doc/                                    # OTA 通讯协议文档（上位机 / 设备各 3 份）
+|-- doc/                                    # OTA 通讯协议文档 + 补丁 1.0（上位机 / 设备各 3 份协议 + 各 3 份补丁）
 |-- APP/
 |   `-- APP/                                # 应用程序工程
 |       |-- APP.ioc                         # STM32CubeMX 工程文件
@@ -161,3 +161,6 @@ cmake --build --preset Debug
 | 2026-11-04 | `FlashManage` 备份页宏同步到新分区：`BackupPageADD1=0x08007C00`、`ADD2=0x0800BC00`、新增 `ADD3=0x0800FC00` |
 | 2026-11-08 | 实现 SetDat 主体流程（控制页接收、自动选槽、非零 CRC 页复制、程序页逐块写入与 CRC 回读）与 SetEnd 全量校验/成功失败回报；MyFLASH 新增连续读写 Buffer 接口；`APP_MID` 改为 `0x0003` |
 | 2026-11-12 | 2.4G 接收前先读 `FIFO_STATUS`，RX FIFO 为空时直接返回，避免无效读；Keil 的 `fromelf` 生成 `APP.bin` 步骤由 BeforeMake 调整为 AfterMake（确保 bin 与本次 axf 一致） |
+| 2026-11-16 | BootLoader 移植 `FlashManage` / `Uart` / `MyFLASH`，新增 USART2，`TIM_LED` 时基由 TIM2 改为 TIM1（配套 TIM1 中断） |
+| 2026-11-17 | BootLoader 实现 `VALID_BACKUP` 检查与复制激活；APP 新增 `0x08/0x09/0x0A` 槽状态及 `FlashManage_ConfirmRunning()` / `FlashManage_RejectRunning()` |
+| 2026-11-18 | APP 用幂等 `FlashManage_InitIfNeeded()` 替换 `FlashManage_FirstOnly()`，`APP_MID` 改为 `0x0007`；APP 固件重新构建（13,828 B） |

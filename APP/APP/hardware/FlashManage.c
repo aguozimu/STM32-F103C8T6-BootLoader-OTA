@@ -62,37 +62,6 @@ static void FlashManage_InitEmptyBackup(uint32_t backup_page){
 	}
 }
 
-/*
- * 开机只执行一次：刷新一号运行区元数据，并初始化首次烧录的二、三号空槽。
- * 写入 APP_MID、RUNNING 状态、15 个程序页 CRC 和控制页 CRC，
- * 供 GetMID、GetCRC、自动选槽及后续 OTA 流程直接读取。
- */
-void FlashManage_FirstOnly(void){
-	Data_Backup data = {0};
-	uint8_t page;
-	uint32_t control_page_crc;
-
-	data.ID = APP_MID;
-	data.Run_status = OTA_RUN_STATUS_RUNNING;
-	data.Data_area = OTA_DATA_AREA_COMPLETE;
-
-	/* Page1~Page15 为程序页，Page16 为控制页；地址均为槽内相对地址 */
-	for (page = 0U; page < OTA_PAGE_COUNT; page++){
-		data.Page[page].Page_ADD = (uint32_t)page * OTA_PAGE_SIZE;
-		data.Page[page].Page_CRC = (page < OTA_PROGRAM_PAGE_COUNT)
-			? FlashManage_FlashPageCRC(APP_RUN_BASE + ((uint32_t)page * OTA_PAGE_SIZE))
-			: 0U;
-	}
-
-	/* 先以 Page16.CRC=0 写入整份元数据，再计算并回填控制页自身 CRC */
-	FlashManage_BackupWritePage(BackupPageADD1, &data);
-	control_page_crc = FlashManage_FlashPageCRC(BackupPageADD1);
-	MyFLASH_ProgramWord(BackupPageADD1 + 0x80U, control_page_crc);
-
-	/* 第一次烧录程序时，二、三号槽元数据仍为 0xFF，写入全 0 的 EMPTY 元数据 */
-	FlashManage_InitEmptyBackup(BackupPageADD2);
-	FlashManage_InitEmptyBackup(BackupPageADD3);
-}
 
 /* 将一份元数据写入指定备份页；backup_page 可为 BackupPageADD1/2/3 */
 void FlashManage_BackupWritePage(uint32_t backup_page, const Data_Backup* Data){
@@ -243,6 +212,59 @@ static union {
 
 static FlashManage_OtaState FlashManage_Ota;
 
+/* 读取并校验任意槽控制页的 Page16 自身 CRC */
+static uint8_t FlashManage_ReadControlPage(uint32_t control_page, Data_Backup* data){
+	uint32_t control_crc;
+
+	MyFLASH_ReadBuffer(control_page, FlashManage_PageBuffer.words, OTA_PAGE_WORD_COUNT);
+	memcpy(data, FlashManage_PageBuffer.bytes, sizeof(*data));
+	control_crc = data->Page[15].Page_CRC;
+
+	FlashManage_WriteU32(&FlashManage_PageBuffer.bytes[0x80U], 0U);
+	return (FlashManage_BufferCRC(FlashManage_PageBuffer.words) == control_crc) ? 1U : 0U;
+}
+
+/* 在二、三号槽中查找与一号槽程序 ID、页 CRC 一致的唯一源槽 */
+static uint8_t FlashManage_FindMatchingSourceSlot(const Data_Backup* running, uint8_t* slot_index){
+	uint8_t candidate;
+	uint8_t page;
+	uint8_t found = 0xFFU;
+
+	for (candidate = 0U; candidate < 2U; candidate++){
+		Data_Backup source;
+		uint32_t control_page = FlashManage_Slots[candidate].control_page;
+
+		if (!FlashManage_ReadControlPage(control_page, &source)){
+			continue;
+		}
+		if (source.ID != running->ID){
+			continue;
+		}
+		if ((source.Run_status != OTA_RUN_STATUS_RUN_PENDING_CONFIRM) &&
+		    (source.Run_status != OTA_RUN_STATUS_RUN_CONFIRMED_OK)){
+			continue;
+		}
+		for (page = 0U; page < OTA_PROGRAM_PAGE_COUNT; page++){
+			if (source.Page[page].Page_CRC != running->Page[page].Page_CRC){
+				break;
+			}
+		}
+		if (page != OTA_PROGRAM_PAGE_COUNT){
+			continue;
+		}
+		if (found != 0xFFU){
+			return 0xFFU;
+		}
+		found = candidate;
+	}
+
+	if (found != 0xFFU){
+		*slot_index = found;
+	}
+	return found;
+
+}
+
 /* 16 位程序 ID 回绕比较：a 比 b 新时返回 1 */
 static uint8_t FlashManage_IsNewerProgramID(uint16_t a, uint16_t b){
 	uint16_t delta = (uint16_t)(a - b);
@@ -311,6 +333,52 @@ static void FlashManage_WriteControlPage(uint32_t control_page, Data_Backup* dat
 	FlashManage_BackupWritePage(control_page, data);
 	data->Page[15].Page_CRC = FlashManage_FlashPageCRC(control_page);
 	MyFLASH_ProgramWord(control_page + 0x80U, data->Page[15].Page_CRC);
+}
+
+/* 按槽索引更新缓存槽状态，状态未变化时不重复擦写 */
+static void FlashManage_SetBackupStatus(uint8_t slot, uint8_t status){
+	Data_Backup data;
+	uint32_t control_page = FlashManage_Slots[slot].control_page;
+
+	if (FlashManage_ReadControlPage(control_page, &data) && (data.Run_status != status)){
+		FlashManage_WriteControlPage(control_page, &data, status, OTA_DATA_AREA_COMPLETE);
+	}
+}
+
+/* 控制页无效时，按一号槽实际程序内容重建运行元数据 */
+static void FlashManage_RebuildRunningMetadata(void){
+	Data_Backup data = {0};
+	uint8_t page;
+
+	data.ID = APP_MID;
+	data.Run_status = OTA_RUN_STATUS_RUNNING;
+	data.Data_area = OTA_DATA_AREA_COMPLETE;
+	for (page = 0U; page < OTA_PAGE_COUNT; page++){
+		data.Page[page].Page_ADD = (uint32_t)page * OTA_PAGE_SIZE;
+		data.Page[page].Page_CRC = (page < OTA_PROGRAM_PAGE_COUNT)
+			? FlashManage_FlashPageCRC(APP_RUN_BASE + ((uint32_t)page * OTA_PAGE_SIZE))
+			: 0U;
+	}
+
+	/* 复用统一控制页写入函数，自动计算并回填 Page16 CRC */
+	FlashManage_WriteControlPage(BackupPageADD1, &data,
+		OTA_RUN_STATUS_RUNNING, OTA_DATA_AREA_COMPLETE);
+}
+
+/*
+ * 开机按需初始化：
+ * 一号槽控制页有效时保持 BootLoader 写入的 ID、状态和页元数据；
+ * 仅控制页无效时重建运行元数据。二、三号槽只在原始状态为 0xFF 时初始化。
+ */
+void FlashManage_InitIfNeeded(void){
+	Data_Backup running;
+
+	if (!FlashManage_ReadControlPage(BackupPageADD1, &running)){
+		FlashManage_RebuildRunningMetadata();
+	}
+
+	FlashManage_InitEmptyBackup(BackupPageADD2);
+	FlashManage_InitEmptyBackup(BackupPageADD3);
 }
 
 /* 校验上位机控制页 ID、相对地址和 Page16 CRC */
@@ -616,6 +684,68 @@ static void FlashManage_HandleSetEnd(uint8_t* RXData){
 		FlashManage_SendFinalFailure(0xFFU, OTA_ERROR_TIMEOUT);
 	}
 	FlashManage_Ota.stage = FLASHMANAGE_OTA_IDLE;
+}
+
+/* 自检成功：一号槽 0x06，唯一匹配源槽 0x09，并清理另一槽的旧状态 */
+void FlashManage_ConfirmRunning(void){
+	Data_Backup running;
+	uint8_t source_slot = 0xFFU;
+	uint8_t index;
+
+	if (!FlashManage_ReadControlPage(BackupPageADD1, &running)){
+		return;
+	}
+
+	(void)FlashManage_FindMatchingSourceSlot(&running, &source_slot);
+	if (running.Run_status != OTA_RUN_STATUS_RUNNING){
+		FlashManage_WriteControlPage(BackupPageADD1, &running,
+			OTA_RUN_STATUS_RUNNING, OTA_DATA_AREA_COMPLETE);
+	}
+
+	if (source_slot == 0xFFU){
+		return;
+	}
+
+	FlashManage_SetBackupStatus(source_slot, OTA_RUN_STATUS_RUN_CONFIRMED_OK);
+	for (index = 0U; index < 2U; index++){
+		Data_Backup other;
+		uint32_t control_page;
+
+		if (index == source_slot){
+			continue;
+		}
+		control_page = FlashManage_Slots[index].control_page;
+		if (!FlashManage_ReadControlPage(control_page, &other)){
+			continue;
+		}
+		if ((other.Run_status != OTA_RUN_STATUS_EMPTY) &&
+		    (other.Run_status != OTA_RUN_STATUS_RUN_CONFIRMED_BAD) &&
+		    (other.Run_status != OTA_RUN_STATUS_VALID_BACKUP) &&
+		    (other.Run_status != OTA_RUN_STATUS_RECEIVING) &&
+		    (other.Run_status != OTA_RUN_STATUS_PAUSED) &&
+		    (other.Run_status != OTA_RUN_STATUS_VERIFYING)){
+			FlashManage_WriteControlPage(control_page, &other,
+				OTA_RUN_STATUS_EMPTY, OTA_DATA_AREA_COMPLETE);
+		}
+	}
+}
+
+/* 自检失败：用原始一号槽元数据定位源槽，双槽写 0x0A 后复位进入回滚 */
+void FlashManage_RejectRunning(void){
+	Data_Backup running;
+	uint8_t source_slot = 0xFFU;
+
+	if (FlashManage_ReadControlPage(BackupPageADD1, &running)){
+		(void)FlashManage_FindMatchingSourceSlot(&running, &source_slot);
+		FlashManage_WriteControlPage(BackupPageADD1, &running,
+			OTA_RUN_STATUS_RUN_CONFIRMED_BAD, OTA_DATA_AREA_COMPLETE);
+		if (source_slot != 0xFFU){
+			FlashManage_SetBackupStatus(source_slot, OTA_RUN_STATUS_RUN_CONFIRMED_BAD);
+		}
+	}
+
+	NVIC_SystemReset();
+
 }
 
 void FlashManage_HCC  (uint8_t* RXData,uint8_t* TXData){

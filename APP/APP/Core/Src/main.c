@@ -100,6 +100,15 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
+/*自检程序先不写，在函数库里加成功或失败的函数*/
+
+FlashManage_ConfirmRunning();
+
+
+
+
+
+
 uint8_t RXData[RF_DATA_LEN]={0};                    /* 2.4G 接收数据 */
 uint8_t TXData[1]={0xF5};                           /* 2.4G 接收模式的 ACK 数据 */
 uint8_t UART2_TXData[UART2_RF_PAYLOAD_MAX]={0};     /* 从环形缓冲区取出的一包数据 */
@@ -107,8 +116,8 @@ uint8_t uart2_tx_len=0;                             /* 本次从环形缓冲区�
 ReadClc_Data Data={0};
 SendClc_Data SendData={0};
 
-/* 开机元数据初始化：刷新 APP_MID、运行状态、页地址与页 CRC */
-FlashManage_FirstOnly();
+/* 开机元数据按需初始化：保留 BootLoader 写入的 ID、状态和页元数据 */
+FlashManage_InitIfNeeded();
 
 /* 启动 TIM2 时基，初始化 UART2 接收，并直接进入 2.4G 接收模式 */
 TIM_LED_Start();

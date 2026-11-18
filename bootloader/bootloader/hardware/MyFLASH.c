@@ -31,6 +31,23 @@ uint8_t MyFLASH_ReadByte(uint32_t Address)
 }
 
 /**
+  * 函    数：FLASH连续读取字
+  * 参    数：Address 起始字地址
+  * 参    数：Data 读取数据缓冲区
+  * 参    数：WordCount 读取字数
+  * 返 回 值：无
+  */
+void MyFLASH_ReadBuffer(uint32_t Address, uint32_t *Data, uint16_t WordCount)
+{
+	uint16_t i;
+
+	for (i = 0U; i < WordCount; i++)
+	{
+		Data[i] = MyFLASH_ReadWord(Address + ((uint32_t)i * 4U));
+	}
+}
+
+/**
   * 函    数：FLASH全擦除
   * 参    数：无
   * 返 回 值：无
@@ -89,4 +106,24 @@ void MyFLASH_ProgramHalfWord(uint32_t Address, uint16_t Data)
 	HAL_FLASH_Unlock();															//解锁
 	HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, Address, (uint64_t)Data);	//编程半字
 	HAL_FLASH_Lock();															//加锁
+}
+
+/**
+  * 函    数：FLASH连续编程字
+  * 参    数：Address 起始字地址
+  * 参    数：Data 待写入的32位数据缓冲区
+  * 参    数：WordCount 写入字数
+  * 返 回 值：无
+  * 说    明：一次解锁后连续写入，供OTA页写入复用
+  */
+void MyFLASH_ProgramBuffer(uint32_t Address, const uint32_t *Data, uint16_t WordCount)
+{
+	uint16_t i;
+
+	HAL_FLASH_Unlock();
+	for (i = 0U; i < WordCount; i++)
+	{
+		HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, Address + ((uint32_t)i * 4U), (uint64_t)Data[i]);
+	}
+	HAL_FLASH_Lock();
 }

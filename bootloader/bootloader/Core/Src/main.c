@@ -21,6 +21,7 @@
 #include "crc.h"
 #include "iwdg.h"
 #include "tim.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -60,7 +61,7 @@ void SystemClock_Config(void);
 
 
 
-#define APP_add 0x8004000  			//APP地址
+static uint32_t APP_add = APP_RUN_BASE;
 void Goto_APP (void){
 	//创建函数指针
 	typedef void(* Start_Goto)  (void);
@@ -127,6 +128,7 @@ int main(void)
   MX_IWDG_Init();
   MX_TIM1_Init();
   MX_CRC_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /*查看是否为看门狗复位*/
@@ -135,25 +137,28 @@ uint32_t is_iwdg = (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST) != 0U);
 __HAL_RCC_CLEAR_RESET_FLAGS(); /*清除复位标志位*/
 
 
-/*初始化/读取 BKP 计数 */
-//HAL_PWR_EnableBkUpAccess();
-//__HAL_RCC_BKP_CLK_ENABLE();
-
-
-//	if (BKP->DR1 != 0x5A5A) { BKP->DR1 = 0x5A5A; BKP->DR2 = 0; }  /* 首次/备份域被清 *//*DR2用来计算出错次数*/
-
-//      
-//	if (is_iwdg) BKP->DR2++;else BKP->DR2 = 0;       /* 看门狗复位 → 累加 */  /* 上电/按键复位 → 清零 */
 
 
 
 if (is_iwdg) {
 /*进入安全模式*/
-TIM_LED_Start();
-  __enable_irq();
+	TIM_LED_Start();
+	__enable_irq();
+	/*写状态，改APP_add，Goto，无可用进入安全模式*/
 } else {
+	/* 检查状态是否有 VALID_BACKUP，有则复制、同步状态并更新 APP_add */
+	uint8_t backup_slot = FlashManage_CheckValidBackup();
 
-    Goto_APP();
+	if (backup_slot != 0xFFU) {
+		FlashManage_CopyValidBackup(backup_slot);
+		APP_add = APP_RUN_BASE;
+	}
+
+	
+	
+	
+	
+	Goto_APP();
 }
 
 
@@ -174,6 +179,7 @@ TIM_LED_Start();
     Delay_ms(200);  
 	HAL_IWDG_Refresh(&hiwdg);
 
+	  /*预留不写*/
 
   }
   /* USER CODE END 3 */

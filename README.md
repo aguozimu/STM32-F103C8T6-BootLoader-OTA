@@ -4,8 +4,6 @@
 
 **三槽 OTA · 2.4G 无线升级 · UART2 透传 · 看门狗回滚**
 
-<img src="./assets/banner.webp" alt="STM32F103C8T6 BootLoader + OTA — 三槽 OTA · 2.4G 无线升级 · 看门狗回滚" width="100%">
-
 [![MCU](https://img.shields.io/badge/MCU-STM32F103C8T6-03234B)](https://www.st.com/en/microcontrollers-microprocessors/stm32f103c8.html)
 ![Build](https://img.shields.io/badge/Build-Keil%20MDK--ARM-0091BD)
 ![OTA](https://img.shields.io/badge/OTA-Active%20Development-orange)
@@ -23,8 +21,6 @@
 ---
 
 ## 为什么是“三槽 + 回滚”
-
-<img src="./assets/features.webp" alt="三槽运行模型：Slot1 运行 / Slot2 升级缓存 / Slot3 回滚备份" width="100%">
 
 | 设计 | 解决的问题 |
 | --- | --- |
@@ -179,6 +175,32 @@ flowchart TD
 | 二号区（升级缓存/备份） | `0x08008000` | `0x08008000~0x0800BBFF`（15 KB） | `0x0800BC00~0x0800BFFF` |
 | 三号区 | `0x0800C000` | `0x0800C000~0x0800FBFF`（15 KB） | `0x0800FC00~0x0800FFFF` |
 
+### 控制页说明
+
+每个 16 KB 槽的最后 1 KB 为**控制页（Page16）**，其余 15 KB 为程序数据（Page1~Page15）。控制页保存该槽的 `ID`、`Run_status`、`Data_area` 以及 16 个页地址/CRC；写入时先在 RAM 组满完整 1 KB（未使用区域填 `0xFF`），计算控制页自身 CRC 后一次写入。
+
+**槽内页映射**
+
+| 页 | 相对地址 | 用途 |
+| --- | --- | --- |
+| Page1 ~ Page15 | `0x0000` ~ `0x3800`（步长 `0x0400`） | 15 个 1 KB 程序页 |
+| Page16 | `0x3C00` | 控制页自身 |
+
+**控制页字节布局（共 1 KB）**
+
+| 偏移 | 长度 | 字段 | 说明 |
+| ---: | ---: | --- | --- |
+| `0x00` | 2 B | `ID` | 程序 ID，小端；16 位有效，`0x0000` 无效 |
+| `0x02` | 1 B | `Run_status` | 槽状态，取值 `0x00`~`0x0A` |
+| `0x03` | 1 B | `Data_area` | 当前 / 最后处理的页号，`0xFF` 表示完成或空闲 |
+| `0x04 + 8×(n-1)` | 4 B | `Page[n].Address` | n=1~16；页地址，小端。上位机控制页用相对地址，设备落盘时改写为绝对地址 |
+| `0x08 + 8×(n-1)` | 4 B | `Page[n].CRC` | n=1~16；整页 1 KB 的 STM32F1 硬件 CRC32，小端 |
+| `0x84` | 892 B | 保留 | 全部 `0xFF` |
+
+> Page16（控制页）地址固定为该槽基址 + `0x3C00`；计算 `Page16.CRC` 时先把该 CRC 字段清 0，再对完整 1 KB 计算硬件 CRC32 并写回。程序页 CRC 为对完整 1 KB（256 个 32 位字）计算的原始硬件 CRC，不做取反。
+>
+> 代码中 `Page[0]`~`Page[14]` 对应协议 Page1~Page15，`Page[15]` 对应 Page16。
+
 > ⚠️ CubeMX 生成的 GCC 链接脚本 `STM32F103xx_FLASH.ld` 中 APP 的 `FLASH` 起始地址仍为 `0x8000000`，与 Keil 工程的 `0x8004000` 不一致。若用 CMake 构建 APP，需把 FLASH ORIGIN 改为 `0x8004000`、LENGTH 改为 `15K`，否则会覆盖 BootLoader。
 
 ---
@@ -232,9 +254,6 @@ cmake --build --preset Debug
 ```
 .
 |-- README.md
-|-- assets/
-|   |-- banner.webp                         # README 封面（项目名片）
-|   `-- features.webp                       # 三槽运行模型图
 |-- .gitignore
 |-- ref/                                    # SI24R1 数据手册、板卡原理图
 |-- doc/                                    # OTA 协议文档 + 补丁 1.0（上位机 / 设备）
@@ -255,7 +274,7 @@ cmake --build --preset Debug
 
 ## 工程约定
 
-- 提交源码、CubeMX / Keil 配置、最终固件（`.hex` / `.bin`）、协议文档与 README 视觉图（`assets/banner.webp` / `assets/features.webp`）；
+- 提交源码、CubeMX / Keil 配置、最终固件（`.hex` / `.bin`）与协议文档；
 - Keil 编译中间产物、`build/`、`MDK-ARM/RTE/`、`MDK-ARM/DebugConfig/` 等由 `.gitignore` 过滤；
 - 对话日志与临时产物统一放在 `tmp/`（已被忽略），详见 `AGENTS.md`。
 
@@ -305,3 +324,4 @@ cmake --build --preset Debug
 
 </details>
 | 2026-11-21 | README 视觉改版：新增 `assets/` 封面与三槽模型图、系统架构 / OTA 设计流程 Mermaid 图、槽状态对照表；OTA 写入事务标记为已实现 |
+| 2026-11-21 | 移除 README 视觉图片与 `assets/` 目录；Flash 分区新增控制页说明、槽内页映射与控制页字节布局表 |

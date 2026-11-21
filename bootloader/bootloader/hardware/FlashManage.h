@@ -104,6 +104,9 @@ uint8_t FlashManage_CheckValidBackup(void);
 /*如果有，拷贝，改状态*/
 void FlashManage_CopyValidBackup(uint8_t backup_slot);
 
+/* IWDG 复位：标记当前/匹配源槽为坏，返回可回滚的 0x09 槽；0xFF 表示无候选 */
+uint8_t FlashManage_HandleWatchdogReset(void);
+
 /* 将一份控制页元数据写入指定备份页 */
 void FlashManage_BackupWritePage(uint32_t backup_page, const Data_Backup* Data);
 

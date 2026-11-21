@@ -10,7 +10,7 @@
 #define OTA_FRAME_LEN 16U
 
 /* 本 APP 的 MID（程序 ID）：16 位有效，0x0000 保留为无效值 */
-#define APP_MID 0x0007U
+#define APP_MID 0x0004U
 
 /* 运行区与 OTA 页布局：15 个程序页 + 1 个控制页，每页 1 KB */
 #define APP_RUN_BASE           0x08004000U

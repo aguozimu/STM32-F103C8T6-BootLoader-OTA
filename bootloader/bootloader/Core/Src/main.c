@@ -141,10 +141,19 @@ __HAL_RCC_CLEAR_RESET_FLAGS(); /*清除复位标志位*/
 
 
 if (is_iwdg) {
-/*进入安全模式*/
+	/* 写状态：当前槽和匹配源槽标坏，并查找另一个 0x09 回滚槽 */
+	uint8_t rollback_slot = FlashManage_HandleWatchdogReset();
+
+	/* 有可用版本：复制到一号槽，更新 APP_add 后跳转 */
+	if (rollback_slot != 0xFFU) {
+		FlashManage_CopyValidBackup(rollback_slot);
+		APP_add = APP_RUN_BASE;
+		Goto_APP();
+	}
+
+	/* 都无可用版本：保持安全模式 */
 	TIM_LED_Start();
 	__enable_irq();
-	/*写状态，改APP_add，Goto，无可用进入安全模式*/
 } else {
 	/* 检查状态是否有 VALID_BACKUP，有则复制、同步状态并更新 APP_add */
 	uint8_t backup_slot = FlashManage_CheckValidBackup();
@@ -154,10 +163,7 @@ if (is_iwdg) {
 		APP_add = APP_RUN_BASE;
 	}
 
-	
-	
-	
-	
+
 	Goto_APP();
 }
 

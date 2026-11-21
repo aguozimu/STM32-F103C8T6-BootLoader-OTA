@@ -96,19 +96,25 @@ void FlashManage_FirstOnly(void){
 
 /* 将一份元数据写入指定备份页；backup_page 可为 BackupPageADD1/2/3 */
 void FlashManage_BackupWritePage(uint32_t backup_page, const Data_Backup* Data){
-	uint8_t page;
+	static uint32_t page_buffer[OTA_PAGE_WORD_COUNT];
+	uint32_t control_crc;
+	uint16_t word;
 
-	MyFLASH_ErasePage(backup_page);
-	/* 偏移 0x00：程序 ID；偏移 0x02：Run_status + Data_area */
-	MyFLASH_ProgramHalfWord(backup_page, Data->ID);
-	MyFLASH_ProgramHalfWord(backup_page + 0x02U,
-		(uint16_t)((uint16_t)Data->Run_status | ((uint16_t)Data->Data_area << 8U)));
-
-	/* 每页 8 字节：偏移 0x04 起为 Address/CRC，循环写入 16 页 */
-	for (page = 0U; page < OTA_PAGE_COUNT; page++){
-		MyFLASH_ProgramWord(backup_page + 0x04U + ((uint32_t)page * 8U), Data->Page[page].Page_ADD);
-		MyFLASH_ProgramWord(backup_page + 0x08U + ((uint32_t)page * 8U), Data->Page[page].Page_CRC);
+	/* 先在 RAM 组出完整 1KB 控制页，未使用区域保持 0xFF */
+	for (word = 0U; word < OTA_PAGE_WORD_COUNT; word++){
+		page_buffer[word] = 0xFFFFFFFFU;
 	}
+	memcpy(page_buffer, Data, sizeof(*Data));
+
+	/* Page16 对应控制页自身；CRC 字段先清零，结果直接写回同一缓冲区 */
+	((Data_Backup*)page_buffer)->Page[15].Page_ADD = backup_page;
+	((Data_Backup*)page_buffer)->Page[15].Page_CRC = 0U;
+	control_crc = FlashManage_BufferCRC(page_buffer);
+	((Data_Backup*)page_buffer)->Page[15].Page_CRC = control_crc;
+
+	/* 擦除后一次写入完整控制页，避免同一地址重复编程 */
+	MyFLASH_ErasePage(backup_page);
+	MyFLASH_ProgramBuffer(backup_page, page_buffer, OTA_PAGE_WORD_COUNT);
 }
 
 void TXD_Send(uint8_t* TXD){
@@ -243,19 +249,69 @@ static union {
 
 static FlashManage_OtaState FlashManage_Ota;
 
+/* 读取并校验控制页自身的 Page16 CRC，供各槽状态处理复用 */
+static uint8_t FlashManage_ReadControlPage(uint32_t control_page, Data_Backup* data){
+	uint32_t control_crc;
+
+	MyFLASH_ReadBuffer(control_page, FlashManage_PageBuffer.words, OTA_PAGE_WORD_COUNT);
+	memcpy(data, FlashManage_PageBuffer.bytes, sizeof(*data));
+	control_crc = data->Page[15].Page_CRC;
+
+	FlashManage_WriteU32(&FlashManage_PageBuffer.bytes[0x80U], 0U);
+	return (FlashManage_BufferCRC(FlashManage_PageBuffer.words) == control_crc) ? 1U : 0U;
+}
+
+/* 按 ID 和 15 个程序页 CRC 查找一号槽对应的缓存源槽 */
+static uint8_t FlashManage_FindMatchingSourceSlot(const Data_Backup* running){
+	uint8_t candidate;
+	uint8_t page;
+
+	for (candidate = 0U; candidate < 2U; candidate++){
+		Data_Backup source;
+
+		if (!FlashManage_ReadControlPage(FlashManage_Slots[candidate].control_page, &source)){
+			continue;
+		}
+		if (source.ID != running->ID){
+			continue;
+		}
+		if ((source.Run_status != OTA_RUN_STATUS_RUN_PENDING_CONFIRM) &&
+		    (source.Run_status != OTA_RUN_STATUS_RUN_CONFIRMED_OK)){
+			continue;
+		}
+		for (page = 0U; page < OTA_PROGRAM_PAGE_COUNT; page++){
+			if (source.Page[page].Page_CRC != running->Page[page].Page_CRC){
+				break;
+			}
+		}
+		if (page == OTA_PROGRAM_PAGE_COUNT){
+			return candidate;
+		}
+	}
+	return 0xFFU;
+
+}
+
 /* 16 位程序 ID 回绕比较：a 比 b 新时返回 1 */
 static uint8_t FlashManage_IsNewerProgramID(uint16_t a, uint16_t b){
 	uint16_t delta = (uint16_t)(a - b);
 	return ((delta != 0U) && (delta < 0x8000U)) ? 1U : 0U;
 }
 
-/* 根据二、三号槽 Run_status、PAUSED 续传 ID 和有效备份 ID 选择目标槽 */
+/* 根据二、三号槽状态、PAUSED 续传 ID 和有效备份 ID 选择目标槽 */
 static uint8_t FlashManage_SelectTargetSlot(uint16_t program_id){
 	uint8_t status2 = FlashManage_ReadRunStatus(BackupPageADD2);
 	uint8_t status3 = FlashManage_ReadRunStatus(BackupPageADD3);
 	uint16_t id2 = MyFLASH_ReadHalfWord(BackupPageADD2);
 	uint16_t id3 = MyFLASH_ReadHalfWord(BackupPageADD3);
+	uint8_t target2 = 0U;
+	uint8_t target3 = 0U;
+	uint8_t keep2;
+	uint8_t keep3;
+	uint8_t keep_priority2 = 0U;
+	uint8_t keep_priority3 = 0U;
 
+	/* 同一升级会话优先续传 */
 	if ((status2 == OTA_RUN_STATUS_PAUSED) && (id2 == program_id)){
 		return 0U;
 	}
@@ -263,24 +319,61 @@ static uint8_t FlashManage_SelectTargetSlot(uint16_t program_id){
 		return 1U;
 	}
 
-	/* 非有效备份的槽可优先作为目标，避免覆盖唯一 VALID_BACKUP */
-	if ((status2 != OTA_RUN_STATUS_VALID_BACKUP) && (status2 != OTA_RUN_STATUS_RUNNING)){
-		return 0U;
+	/* OTA 目标优先级：0x0A > 0x08 > 0x00 > 0x07/0x01 */
+	if (status2 == OTA_RUN_STATUS_RUN_CONFIRMED_BAD){
+		target2 = 4U;
+	}else if (status2 == OTA_RUN_STATUS_RUN_PENDING_CONFIRM){
+		target2 = 3U;
+	}else if (status2 == OTA_RUN_STATUS_EMPTY){
+		target2 = 2U;
+	}else if ((status2 == OTA_RUN_STATUS_ERROR) || (status2 == OTA_RUN_STATUS_FLASHABLE)){
+		target2 = 1U;
 	}
-	if ((status3 != OTA_RUN_STATUS_VALID_BACKUP) && (status3 != OTA_RUN_STATUS_RUNNING)){
-		return 1U;
+	if (status3 == OTA_RUN_STATUS_RUN_CONFIRMED_BAD){
+		target3 = 4U;
+	}else if (status3 == OTA_RUN_STATUS_RUN_PENDING_CONFIRM){
+		target3 = 3U;
+	}else if (status3 == OTA_RUN_STATUS_EMPTY){
+		target3 = 2U;
+	}else if ((status3 == OTA_RUN_STATUS_ERROR) || (status3 == OTA_RUN_STATUS_FLASHABLE)){
+		target3 = 1U;
+	}
+	if (target2 != 0U || target3 != 0U){
+		return (target2 >= target3) ? 0U : 1U;
 	}
 
-	if ((status2 == OTA_RUN_STATUS_VALID_BACKUP) && (status3 == OTA_RUN_STATUS_VALID_BACKUP)){
-		return FlashManage_IsNewerProgramID(id2, id3) ? 1U : 0U;
+	/* 0x05/0x09 是有效备份，优先保留；都有效时覆盖较旧 ID */
+	if (status2 == OTA_RUN_STATUS_RUN_CONFIRMED_OK){
+		keep_priority2 = 3U;
+	}else if (status2 == OTA_RUN_STATUS_VALID_BACKUP){
+		keep_priority2 = 2U;
 	}
-	if (status2 == OTA_RUN_STATUS_VALID_BACKUP){
+	if (status3 == OTA_RUN_STATUS_RUN_CONFIRMED_OK){
+		keep_priority3 = 3U;
+	}else if (status3 == OTA_RUN_STATUS_VALID_BACKUP){
+		keep_priority3 = 2U;
+	}
+	keep2 = (keep_priority2 != 0U);
+	keep3 = (keep_priority3 != 0U);
+	if (keep2 && !keep3){
 		return 1U;
 	}
-	if (status3 == OTA_RUN_STATUS_VALID_BACKUP){
+	if (keep3 && !keep2){
 		return 0U;
 	}
-	return 0xFFU;
+	if (keep2 && keep3){
+		if (FlashManage_IsNewerProgramID(id2, id3)){
+			return 1U;
+		}
+		if (FlashManage_IsNewerProgramID(id3, id2)){
+			return 0U;
+		}
+		/* ID 相同时优先保留状态等级更高的槽，等级也相同则按补丁默认选二号槽 */
+		return (keep_priority2 > keep_priority3) ? 1U : 0U;
+	}
+
+	/* 无法区分时按补丁默认选择二号槽 */
+	return 0U;
 }
 
 /* 返回页掩码中编号最小的待写页 */
@@ -308,9 +401,19 @@ static void FlashManage_WriteControlPage(uint32_t control_page, Data_Backup* dat
 	data->Page[15].Page_ADD = control_page;
 	data->Page[15].Page_CRC = 0U;
 
+	/* 统一由 BackupWritePage 组页、计算并写入 Page16 CRC */
 	FlashManage_BackupWritePage(control_page, data);
-	data->Page[15].Page_CRC = FlashManage_FlashPageCRC(control_page);
-	MyFLASH_ProgramWord(control_page + 0x80U, data->Page[15].Page_CRC);
+	/* 回读实际落盘 CRC，保持调用方元数据同步 */
+	data->Page[15].Page_CRC = MyFLASH_ReadWord(control_page + 0x80U);
+}
+
+/* 按控制页地址写入指定状态，复用统一控制页写入流程 */
+static void FlashManage_SetControlStatus(uint32_t control_page, uint8_t status){
+	Data_Backup data;
+
+	if (FlashManage_ReadControlPage(control_page, &data)){
+		FlashManage_WriteControlPage(control_page, &data, status, OTA_DATA_AREA_COMPLETE);
+	}
 }
 
 /* 校验上位机控制页 ID、相对地址和 Page16 CRC */
@@ -617,16 +720,15 @@ static void FlashManage_HandleSetEnd(uint8_t* RXData){
 	FlashManage_Ota.stage = FLASHMANAGE_OTA_IDLE;
 }
 
-/*检查状态是否有VALID_BACKUP*/
-uint8_t FlashManage_CheckValidBackup(void){
+/* 按状态查找二、三号缓存槽；存在多个候选时复用 ID 新旧规则选较新的一个 */
+static uint8_t FlashManage_CheckBackupStatus(uint8_t status){
 	uint8_t index;
 	uint8_t found = 0xFFU;
 	uint16_t found_id = 0U;
 	uint16_t id;
 
 	for (index = 0U; index < 2U; index++){
-		if (MyFLASH_ReadByte(FlashManage_Slots[index].control_page + 0x02U) !=
-		    OTA_RUN_STATUS_VALID_BACKUP){
+		if (MyFLASH_ReadByte(FlashManage_Slots[index].control_page + 0x02U) != status){
 			continue;
 		}
 
@@ -637,6 +739,32 @@ uint8_t FlashManage_CheckValidBackup(void){
 		}
 	}
 	return found;
+}
+
+/*检查状态是否有VALID_BACKUP*/
+uint8_t FlashManage_CheckValidBackup(void){
+	return FlashManage_CheckBackupStatus(OTA_RUN_STATUS_VALID_BACKUP);
+}
+
+/*
+ * IWDG 判坏与回滚候选选择：
+ * 先用原始一号槽元数据定位匹配源槽，再将当前槽和源槽都写为 0x0A；
+ * 最后返回另一个 0x09 缓存槽索引，0xFF 表示没有可回滚版本。
+ */
+uint8_t FlashManage_HandleWatchdogReset(void){
+	Data_Backup running;
+	uint8_t source_slot;
+
+	if (FlashManage_ReadControlPage(BackupPageADD1, &running)){
+		source_slot = FlashManage_FindMatchingSourceSlot(&running);
+		FlashManage_SetControlStatus(BackupPageADD1, OTA_RUN_STATUS_RUN_CONFIRMED_BAD);
+		if (source_slot != 0xFFU){
+			FlashManage_SetControlStatus(FlashManage_Slots[source_slot].control_page,
+				OTA_RUN_STATUS_RUN_CONFIRMED_BAD);
+		}
+	}
+
+	return FlashManage_CheckBackupStatus(OTA_RUN_STATUS_RUN_CONFIRMED_OK);
 }
 
 /*如果有，拷贝，改状态，改APP_add*/

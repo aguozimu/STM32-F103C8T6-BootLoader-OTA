@@ -52,7 +52,7 @@ BootLoader 启动后执行 `Goto_APP()`（见 `bootloader/bootloader/Core/Src/ma
 4. `SCB->VTOR = 0x08004000` 重定向中断向量表；
 5. 以函数指针方式跳转到 APP 运行。
 
-> BootLoader 在跳转前还会判断复位源并清除复位标志：`RCC_FLAG_IWDGRST`（看门狗复位）成立时不跳转 APP，而是进入安全模式——由 TIM1（100 ms）驱动 PB12 LED 闪烁并在主循环中喂狗；其他复位（上电 / 按键 / 软件）先检查二、三号槽是否存在 `VALID_BACKUP`，有则把最新有效备份复制到一号运行区并把相关槽置为 `0x08`（RUN_PENDING_CONFIRM），随后跳转 APP。
+> BootLoader 在跳转前还会判断复位源并清除复位标志：`RCC_FLAG_IWDGRST`（看门狗复位）成立时先执行 `FlashManage_HandleWatchdogReset()`——把当前运行槽及匹配源槽标为 `0x0A`（CONFIRMED_BAD），若存在 `0x09`（CONFIRMED_OK）回滚槽则复制到一号运行区并跳转，否则进入安全模式（TIM1 驱动 LED 闪烁 + 喂狗）；其他复位（上电 / 按键 / 软件）先检查二、三号槽是否存在 `VALID_BACKUP`，有则把最新有效备份复制到一号运行区并把相关槽置为 `0x08`，随后跳转 APP。
 >
 > OTA 基础组件已落地：CRC（CRC 外设 + HAL 驱动）、Flash 读写/擦除（`hardware/MyFLASH.c`）、控制页与备份元数据（`hardware/FlashManage.c`，含幂等初始化 `FlashManage_InitIfNeeded()`）；已实现 `GetCRC` / `GetMID` / `GetSta` 查询事务、`AckCRC` 停等确认、`SetDat` 控制页/程序页接收与逐页擦写、非零 CRC 页复制、自动选槽、`SetEnd` 全量校验与成功/失败回报；BootLoader 支持 `VALID_BACKUP` 复制激活，APP 提供 `FlashManage_ConfirmRunning()` / `FlashManage_RejectRunning()` 自检确认/拒绝入口（当前 `ConfirmRunning()` 为占位调用，实际自检尚未接入）。实机联调与收帧健壮性（拆包/粘包）仍待完善。
 >
@@ -164,3 +164,5 @@ cmake --build --preset Debug
 | 2026-11-16 | BootLoader 移植 `FlashManage` / `Uart` / `MyFLASH`，新增 USART2，`TIM_LED` 时基由 TIM2 改为 TIM1（配套 TIM1 中断） |
 | 2026-11-17 | BootLoader 实现 `VALID_BACKUP` 检查与复制激活；APP 新增 `0x08/0x09/0x0A` 槽状态及 `FlashManage_ConfirmRunning()` / `FlashManage_RejectRunning()` |
 | 2026-11-18 | APP 用幂等 `FlashManage_InitIfNeeded()` 替换 `FlashManage_FirstOnly()`，`APP_MID` 改为 `0x0007`；APP 固件重新构建（13,828 B） |
+| 2026-11-19 | 控制页写入改为「RAM 组满 1 KB → 计算 Page16 CRC → 擦除后整页一次写入」（APP + BootLoader）；OTA 选槽优先级加入 `0x08`（`0x0A > 0x08 > 0x00 > 0x07/0x01`，保留 `0x05/0x09`） |
+| 2026-11-20 | BootLoader 新增 `FlashManage_HandleWatchdogReset()`（IWDG 复位时标坏当前/匹配源槽并回滚 `0x09`）；`APP_MID` 改为 `0x0004`；两份固件重新构建 |

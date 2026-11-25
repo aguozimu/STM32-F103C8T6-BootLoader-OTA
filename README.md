@@ -25,7 +25,7 @@
 | 资源 | 链接 | 说明 |
 | --- | --- | --- |
 | 演示视频 | [YouTube](https://youtu.be/_FmDQ6nCTwE) | 项目功能演示 |
-| 硬件开源 | [立创开源广场](https://oshwhub.com/qwqemm/project_pbuzmlz) | 原理图 / PCB / BOM 等硬件资料 |
+| 硬件开源 | [立创开源广场](https://oshwhub.com/qwqemm/project_pbuzmulz) | 原理图 / PCB / BOM 等硬件资料 |
 
 ---
 

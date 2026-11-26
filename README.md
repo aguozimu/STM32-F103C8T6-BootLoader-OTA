@@ -20,12 +20,13 @@
 
 ---
 
-## 演示与硬件开源
+## 相关资源
 
 | 资源 | 链接 | 说明 |
 | --- | --- | --- |
 | 演示视频 | [YouTube](https://youtu.be/_FmDQ6nCTwE) | 项目功能演示 |
 | 硬件开源 | [立创开源广场](https://oshwhub.com/qwqemm/project_pbuzmulz) | 原理图 / PCB / BOM 等硬件资料 |
+| OTA 上位机 | [PY-MyBootLoader-OTA](https://github.com/aguozimu/PY-MyBootLoader-OTA) | OTA 升级上位机工具 |
 
 ---
 
@@ -335,3 +336,4 @@ cmake --build --preset Debug
 | 2026-11-21 | README 视觉改版：新增 `assets/` 封面与三槽模型图、系统架构 / OTA 设计流程 Mermaid 图、槽状态对照表；OTA 写入事务标记为已实现 |
 | 2026-11-21 | 移除 README 视觉图片与 `assets/` 目录；Flash 分区新增控制页说明、槽内页映射与控制页字节布局表 |
 | 2026-11-25 | README 新增演示视频（YouTube）与硬件开源（立创开源广场）链接 |
+| 2026-11-26 | README 新增 OTA 上位机仓库（PY-MyBootLoader-OTA）链接 |
